@@ -1,0 +1,253 @@
+{% extends "base.html" %}
+
+{% block title %}Select Dates - {{ poll_name }}{% endblock %}
+
+{% block extra_head %}
+<style>
+    .calendar-grid {
+        display: grid;
+        grid-template-columns: repeat(7, 1fr);
+        gap: 2px;
+    }
+    .calendar-day {
+        aspect-ratio: 1;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        border-radius: 8px;
+        cursor: pointer;
+        font-size: 14px;
+        font-weight: 500;
+        transition: all 0.15s ease;
+        user-select: none;
+    }
+    .calendar-day:hover:not(.disabled):not(.header) {
+        background-color: #e0e7ff;
+    }
+    .calendar-day.selected {
+        background-color: #6366f1;
+        color: white;
+    }
+    .calendar-day.selected:hover {
+        background-color: #4f46e5;
+    }
+    .calendar-day.disabled {
+        color: #d1d5db;
+        cursor: not-allowed;
+    }
+    .calendar-day.today:not(.selected) {
+        border: 2px solid #6366f1;
+    }
+    .calendar-day.header {
+        font-size: 11px;
+        font-weight: 600;
+        color: #9ca3af;
+        cursor: default;
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+    }
+    .calendar-day.other-month {
+        color: #d1d5db;
+    }
+    .calendar-day.other-month.selected {
+        background-color: #a5b4fc;
+        color: white;
+    }
+    @media (max-width: 640px) {
+        .calendar-day {
+            font-size: 12px;
+            border-radius: 6px;
+        }
+        .calendar-day.header {
+            font-size: 10px;
+        }
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="max-w-lg mx-auto">
+    <div class="bg-white rounded-xl shadow-lg overflow-hidden">
+        <div class="p-5 border-b border-gray-100">
+            <h1 class="text-xl font-bold text-gray-900">{{ poll_name }}</h1>
+            <p class="text-sm text-gray-500 mt-1">Tap dates to select them</p>
+        </div>
+        
+        <div class="p-5">
+            <div class="flex items-center justify-between mb-4">
+                <button onclick="prevMonth()" class="p-2 hover:bg-gray-100 rounded-lg transition-colors">
+                    <svg class="w-5 h-5 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"/>
+                    </svg>
+                </button>
+                <h2 id="month-title" class="text-lg font-semibold text-gray-900"></h2>
+                <button onclick="nextMonth()" class="p-2 hover:bg-gray-100 rounded-lg transition-colors">
+                    <svg class="w-5 h-5 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/>
+                    </svg>
+                </button>
+            </div>
+            
+            <div id="calendar" class="calendar-grid"></div>
+            
+            <div class="mt-5 flex items-center justify-between">
+                <span id="selected-count" class="text-sm text-gray-500">0 dates selected</span>
+                <button onclick="clearSelection()" class="text-sm text-gray-500 hover:text-gray-700">Clear all</button>
+            </div>
+        </div>
+        
+        <div class="p-5 bg-gray-50 border-t border-gray-100">
+            <button 
+                id="create-btn"
+                onclick="finalizePoll()"
+                class="w-full bg-indigo-600 text-white py-3 px-6 rounded-lg font-medium hover:bg-indigo-700 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                disabled
+            >
+                Create Poll
+            </button>
+        </div>
+    </div>
+</div>
+
+<script>
+    const selectedDates = new Set();
+    let currentDate = new Date();
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    
+    const monthNames = ['January', 'February', 'March', 'April', 'May', 'June', 
+                        'July', 'August', 'September', 'October', 'November', 'December'];
+    const dayNames = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+    
+    function renderCalendar() {
+        const year = currentDate.getFullYear();
+        const month = currentDate.getMonth();
+        
+        document.getElementById('month-title').textContent = `${monthNames[month]} ${year}`;
+        
+        const firstDay = new Date(year, month, 1);
+        const lastDay = new Date(year, month + 1, 0);
+        const startDay = firstDay.getDay();
+        const totalDays = lastDay.getDate();
+        
+        let html = '';
+        
+        dayNames.forEach(day => {
+            html += `<div class="calendar-day header">${day}</div>`;
+        });
+        
+        const prevMonthLastDay = new Date(year, month, 0).getDate();
+        for (let i = startDay - 1; i >= 0; i--) {
+            const day = prevMonthLastDay - i;
+            const dateStr = formatDate(new Date(year, month - 1, day));
+            const isSelected = selectedDates.has(dateStr);
+            html += `<div class="calendar-day other-month ${isSelected ? 'selected' : ''}" data-date="${dateStr}" onclick="toggleDate('${dateStr}', this)">${day}</div>`;
+        }
+        
+        for (let day = 1; day <= totalDays; day++) {
+            const date = new Date(year, month, day);
+            const dateStr = formatDate(date);
+            const isToday = date.getTime() === today.getTime();
+            const isPast = date < today;
+            const isSelected = selectedDates.has(dateStr);
+            
+            let classes = 'calendar-day';
+            if (isToday) classes += ' today';
+            if (isPast) classes += ' disabled';
+            if (isSelected) classes += ' selected';
+            
+            if (isPast) {
+                html += `<div class="${classes}">${day}</div>`;
+            } else {
+                html += `<div class="${classes}" data-date="${dateStr}" onclick="toggleDate('${dateStr}', this)">${day}</div>`;
+            }
+        }
+        
+        const remainingCells = 42 - (startDay + totalDays);
+        for (let day = 1; day <= remainingCells; day++) {
+            const dateStr = formatDate(new Date(year, month + 1, day));
+            const isSelected = selectedDates.has(dateStr);
+            html += `<div class="calendar-day other-month ${isSelected ? 'selected' : ''}" data-date="${dateStr}" onclick="toggleDate('${dateStr}', this)">${day}</div>`;
+        }
+        
+        document.getElementById('calendar').innerHTML = html;
+    }
+    
+    function formatDate(date) {
+        return date.toISOString().split('T')[0];
+    }
+    
+    function toggleDate(dateStr, el) {
+        if (selectedDates.has(dateStr)) {
+            selectedDates.delete(dateStr);
+            el.classList.remove('selected');
+        } else {
+            selectedDates.add(dateStr);
+            el.classList.add('selected');
+        }
+        updateSelectedCount();
+    }
+    
+    function prevMonth() {
+        currentDate.setMonth(currentDate.getMonth() - 1);
+        renderCalendar();
+    }
+    
+    function nextMonth() {
+        currentDate.setMonth(currentDate.getMonth() + 1);
+        renderCalendar();
+    }
+    
+    function clearSelection() {
+        selectedDates.clear();
+        renderCalendar();
+        updateSelectedCount();
+    }
+    
+    function updateSelectedCount() {
+        const count = selectedDates.size;
+        document.getElementById('selected-count').textContent = `${count} date${count !== 1 ? 's' : ''} selected`;
+        document.getElementById('create-btn').disabled = count === 0;
+    }
+    
+    async function finalizePoll() {
+        if (selectedDates.size === 0) {
+            alert('Please select at least one date');
+            return;
+        }
+        
+        const btn = document.getElementById('create-btn');
+        btn.disabled = true;
+        btn.textContent = 'Creating...';
+        
+        try {
+            const response = await fetch('/finalize', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                    dates: Array.from(selectedDates).sort()
+                })
+            });
+            
+            const data = await response.json();
+            
+            if (data.error) {
+                alert(data.error);
+                btn.disabled = false;
+                btn.textContent = 'Create Poll';
+                return;
+            }
+            
+            window.location.href = '/share/' + data.poll_id;
+        } catch (error) {
+            alert('An error occurred. Please try again.');
+            btn.disabled = false;
+            btn.textContent = 'Create Poll';
+        }
+    }
+    
+    document.addEventListener('DOMContentLoaded', renderCalendar);
+</script>
+{% endblock %}

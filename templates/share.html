@@ -1,0 +1,96 @@
+{% extends "base.html" %}
+
+{% block title %}Share Poll - {{ poll.name }}{% endblock %}
+
+{% block content %}
+<div class="max-w-2xl mx-auto">
+    <div class="bg-white rounded-xl shadow-lg p-8">
+        <div class="text-center mb-8">
+            <div class="w-16 h-16 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-4">
+                <svg class="w-8 h-8 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path>
+                </svg>
+            </div>
+            <h1 class="text-2xl font-bold text-gray-900 mb-2">Poll Created!</h1>
+            <p class="text-gray-600">Share this link with your participants so they can vote.</p>
+        </div>
+        
+        <div class="mb-6">
+            <label class="block text-sm font-medium text-gray-700 mb-2">Poll Link</label>
+            <div class="flex gap-2">
+                <input 
+                    type="text" 
+                    id="poll-url" 
+                    value="{{ poll_url }}"
+                    readonly
+                    class="flex-1 px-4 py-3 bg-gray-50 border border-gray-300 rounded-lg text-gray-700"
+                >
+                <button 
+                    onclick="copyUrl()"
+                    class="bg-indigo-600 text-white py-3 px-6 rounded-lg font-medium hover:bg-indigo-700 transition-colors whitespace-nowrap"
+                >
+                    Copy Link
+                </button>
+            </div>
+            <p id="copy-success" class="text-sm text-green-600 mt-2 hidden">Link copied to clipboard!</p>
+        </div>
+        
+        <div class="mb-6">
+            <label class="block text-sm font-medium text-gray-700 mb-2">Invite via Email (optional)</label>
+            <textarea 
+                id="invite-emails"
+                rows="4"
+                class="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                placeholder="Enter email addresses, one per line..."
+            >{{ poll.invite_emails or '' }}</textarea>
+            <button 
+                onclick="saveEmails()"
+                class="mt-2 text-sm text-indigo-600 hover:text-indigo-700"
+            >
+                Save emails for reference
+            </button>
+        </div>
+        
+        <div class="flex gap-4">
+            <a 
+                href="{{ url_for('view_poll', poll_id=poll.id) }}"
+                class="flex-1 bg-indigo-600 text-white py-3 px-4 rounded-lg font-medium hover:bg-indigo-700 transition-colors text-center"
+            >
+                View Poll
+            </a>
+            <a 
+                href="/"
+                class="flex-1 bg-gray-100 text-gray-700 py-3 px-4 rounded-lg font-medium hover:bg-gray-200 transition-colors text-center"
+            >
+                Create Another
+            </a>
+        </div>
+    </div>
+</div>
+
+<script>
+    function copyUrl() {
+        const urlInput = document.getElementById('poll-url');
+        urlInput.select();
+        document.execCommand('copy');
+        
+        const successMsg = document.getElementById('copy-success');
+        successMsg.classList.remove('hidden');
+        setTimeout(() => successMsg.classList.add('hidden'), 3000);
+    }
+    
+    async function saveEmails() {
+        const emails = document.getElementById('invite-emails').value;
+        
+        await fetch('/share/{{ poll.id }}/update-emails', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({ emails })
+        });
+        
+        alert('Emails saved!');
+    }
+</script>
+{% endblock %}
