@@ -91,7 +91,7 @@ def generate_token():
 def send_verification_email(to_email, token, request_url_root):
     if not RESEND_API_KEY:
         print("ERROR: Resend not configured - missing RESEND_API_KEY")
-        return False
+        return False, "Missing RESEND_API_KEY"
     
     verify_url = request_url_root.rstrip("/") + url_for("verify_email", token=token)
 
@@ -118,7 +118,7 @@ def send_verification_email(to_email, token, request_url_root):
             json=email_payload,
             timeout=10
         )
-        
+
         if response.status_code == 403 and "domain is not verified" in response.text:
             email_payload["from"] = "onboarding@resend.dev"
             response = requests.post(
@@ -130,11 +130,16 @@ def send_verification_email(to_email, token, request_url_root):
                 json=email_payload,
                 timeout=10
             )
-        
-        return response.status_code in (200, 201)
+
+        if response.status_code in (200, 201):
+            return True, None
+
+        error_summary = f"Resend rejected send (status={response.status_code}): {response.text[:300]}"
+        print(f"ERROR: {error_summary}")
+        return False, error_summary
     except Exception as e:
         print(f"ERROR: Failed to send email: {e}")
-        return False
+        return False, str(e)
 
 
 def get_db():
@@ -261,8 +266,13 @@ def login():
             conn.commit()
             conn.close()
             
-            send_verification_email(email, token, request.url_root)
-            flash("Welcome! We've sent you a verification email. Please check your inbox to set up your password.", "success")
+            sent, error = send_verification_email(email, token, request.url_root)
+            if sent:
+                flash("Welcome! We've sent you a verification email. Please check your inbox to set up your password.", "success")
+            else:
+                flash("We could not send your verification email right now. Please try again in a minute.", "error")
+                if error:
+                    print(f"ERROR: Verification email send failed for {email}: {error}")
             return redirect(url_for("login"))
         
         if not user["is_verified"]:
@@ -277,8 +287,13 @@ def login():
             conn.commit()
             conn.close()
             
-            send_verification_email(email, token, request.url_root)
-            flash("Your account is not verified. We've sent a new verification email.", "error")
+            sent, error = send_verification_email(email, token, request.url_root)
+            if sent:
+                flash("Your account is not verified. We've sent a new verification email.", "error")
+            else:
+                flash("Your account is not verified, but we could not send a new email yet. Please try again shortly.", "error")
+                if error:
+                    print(f"ERROR: Verification email resend failed for {email}: {error}")
             return redirect(url_for("login"))
         
         if not password:
