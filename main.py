@@ -2,14 +2,17 @@ import os
 import random
 import string
 import secrets
+from pathlib import Path
 import psycopg2
 import requests
+from dotenv import load_dotenv
 from psycopg2.extras import RealDictCursor
 from datetime import datetime
 from flask import Flask, render_template, request, redirect, url_for, session, jsonify, flash
 from werkzeug.security import generate_password_hash, check_password_hash
 from werkzeug.utils import secure_filename
-from replit.object_storage import Client as ObjectStorageClient
+
+load_dotenv()
 
 app = Flask(__name__)
 app.secret_key = os.environ.get("SESSION_SECRET")
@@ -17,6 +20,13 @@ if not app.secret_key:
     raise RuntimeError("SESSION_SECRET environment variable is required")
 
 DATABASE_URL = os.environ.get("DATABASE_URL")
+RESEND_API_KEY = os.environ.get("RESEND_API_KEY")
+RESEND_FROM_EMAIL = os.environ.get("RESEND_FROM_EMAIL", "Diamond Dogs <noreply@mail.diamonddogs.ca>")
+
+UPLOAD_DIR = Path(app.static_folder) / "uploads" / "profile-photos"
+UPLOAD_URL_PREFIX = "uploads/profile-photos"
+MAX_UPLOAD_SIZE_BYTES = 5 * 1024 * 1024
+UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
 
 ALLOWED_EMAILS = [
     "luke.david.reimer@gmail.com",
@@ -78,52 +88,15 @@ def generate_token():
     return secrets.token_urlsafe(32)
 
 
-def get_resend_credentials():
-    hostname = os.environ.get("REPLIT_CONNECTORS_HOSTNAME")
-    x_replit_token = None
-    
-    if os.environ.get("REPL_IDENTITY"):
-        x_replit_token = "repl " + os.environ.get("REPL_IDENTITY")
-    elif os.environ.get("WEB_REPL_RENEWAL"):
-        x_replit_token = "depl " + os.environ.get("WEB_REPL_RENEWAL")
-    
-    if not x_replit_token:
-        return None
-    
-    response = requests.get(
-        f"https://{hostname}/api/v2/connection?include_secrets=true&connector_names=resend",
-        headers={
-            "Accept": "application/json",
-            "X_REPLIT_TOKEN": x_replit_token
-        }
-    )
-    
-    data = response.json()
-    connection = data.get("items", [{}])[0] if data.get("items") else {}
-    settings = connection.get("settings", {})
-    
-    return {
-        "api_key": settings.get("api_key"),
-        "from_email": settings.get("from_email")
-    }
-
-
 def send_verification_email(to_email, token, request_url_root):
-    creds = get_resend_credentials()
-    print(f"DEBUG: Resend credentials: api_key={'set' if creds and creds.get('api_key') else 'NOT SET'}, from_email={creds.get('from_email') if creds else 'N/A'}")
-    
-    if not creds or not creds.get("api_key"):
-        print("ERROR: Resend not configured - no API key")
+    if not RESEND_API_KEY:
+        print("ERROR: Resend not configured - missing RESEND_API_KEY")
         return False
     
     verify_url = request_url_root.rstrip("/") + url_for("verify_email", token=token)
-    print(f"DEBUG: Sending verification email to {to_email}, verify_url={verify_url}")
-    
-    # Use verified subdomain for sending
-    from_email = "Diamond Dogs <noreply@mail.diamonddogs.ca>"
-    
+
     email_payload = {
-        "from": from_email,
+        "from": RESEND_FROM_EMAIL,
         "to": [to_email],
         "subject": "Verify your Diamond Dogs Scheduler account",
         "html": f"""
@@ -139,27 +112,26 @@ def send_verification_email(to_email, token, request_url_root):
         response = requests.post(
             "https://api.resend.com/emails",
             headers={
-                "Authorization": f"Bearer {creds['api_key']}",
+                "Authorization": f"Bearer {RESEND_API_KEY}",
                 "Content-Type": "application/json"
             },
-            json=email_payload
+            json=email_payload,
+            timeout=10
         )
-        print(f"DEBUG: Resend API response: status={response.status_code}, body={response.text}")
         
         if response.status_code == 403 and "domain is not verified" in response.text:
-            print("DEBUG: Domain not verified, trying with Resend test email...")
             email_payload["from"] = "onboarding@resend.dev"
             response = requests.post(
                 "https://api.resend.com/emails",
                 headers={
-                    "Authorization": f"Bearer {creds['api_key']}",
+                    "Authorization": f"Bearer {RESEND_API_KEY}",
                     "Content-Type": "application/json"
                 },
-                json=email_payload
+                json=email_payload,
+                timeout=10
             )
-            print(f"DEBUG: Retry response: status={response.status_code}, body={response.text}")
         
-        return response.status_code == 200
+        return response.status_code in (200, 201)
     except Exception as e:
         print(f"ERROR: Failed to send email: {e}")
         return False
@@ -709,20 +681,29 @@ def upload_profile_photo():
     file = request.files["photo"]
     if file.filename == "":
         return jsonify({"error": "No file selected"}), 400
+
+    original_filename = secure_filename(file.filename)
+    if not original_filename:
+        return jsonify({"error": "Invalid file name"}), 400
     
     allowed_extensions = {"png", "jpg", "jpeg", "gif", "webp"}
-    ext = file.filename.rsplit(".", 1)[-1].lower() if "." in file.filename else ""
+    ext = original_filename.rsplit(".", 1)[-1].lower() if "." in original_filename else ""
     if ext not in allowed_extensions:
         return jsonify({"error": "Invalid file type. Please upload an image."}), 400
     
     try:
-        storage = ObjectStorageClient()
-        filename = f"profile-photos/{user_email.replace('@', '_').replace('.', '_')}_{secrets.token_hex(8)}.{ext}"
-        
         file_data = file.read()
-        storage.upload_from_bytes(filename, file_data)
-        
-        photo_url = storage.get_url(filename)
+        if len(file_data) > MAX_UPLOAD_SIZE_BYTES:
+            return jsonify({"error": "File is too large. Max size is 5MB."}), 400
+
+        user_slug = secure_filename(user_email.replace("@", "_"))
+        saved_filename = f"{user_slug}_{secrets.token_hex(8)}.{ext}"
+        output_path = UPLOAD_DIR / saved_filename
+
+        with open(output_path, "wb") as out_file:
+            out_file.write(file_data)
+
+        photo_url = url_for("static", filename=f"{UPLOAD_URL_PREFIX}/{saved_filename}", _external=True)
         
         conn = get_db()
         cursor = conn.cursor()
@@ -748,4 +729,8 @@ def logout():
 
 
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=5000, debug=True)
+    app.run(
+        host="0.0.0.0",
+        port=int(os.environ.get("PORT", "8080")),
+        debug=os.environ.get("FLASK_DEBUG", "").lower() in ("1", "true", "yes")
+    )
