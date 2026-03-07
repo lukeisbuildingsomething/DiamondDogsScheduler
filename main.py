@@ -21,7 +21,7 @@ if not app.secret_key:
 
 DATABASE_URL = os.environ.get("DATABASE_URL")
 RESEND_API_KEY = os.environ.get("RESEND_API_KEY")
-RESEND_FROM_EMAIL = os.environ.get("RESEND_FROM_EMAIL", "Diamond Dogs <noreply@mail.diamonddogs.ca>")
+RESEND_FROM_EMAIL = os.environ.get("RESEND_FROM_EMAIL", "Templo <noreply@templobooker.com>")
 
 UPLOAD_DIR = Path(app.static_folder) / "uploads" / "profile-photos"
 UPLOAD_URL_PREFIX = "uploads/profile-photos"
@@ -154,12 +154,13 @@ def send_verification_email(to_email, token, request_url_root):
     email_payload = {
         "from": RESEND_FROM_EMAIL,
         "to": [to_email],
-        "subject": "Verify your Diamond Dogs Scheduler account",
+        "subject": "Verify your Templo account",
         "html": f"""
-        <h2>Welcome to Diamond Dogs Scheduler!</h2>
+        <h2>Welcome to Templo!</h2>
         <p>Click the link below to verify your email and set up your password:</p>
         <p><a href="{verify_url}" style="background-color: #4F46E5; color: white; padding: 12px 24px; text-decoration: none; border-radius: 8px; display: inline-block;">Verify Email</a></p>
         <p>Or copy this link: {verify_url}</p>
+        <p>Templo: templobooker.com</p>
         <p>This link expires in 24 hours.</p>
         """
     }
@@ -495,6 +496,18 @@ def verify_email(token):
         return redirect(url_for("login"))
     
     email = token_record["email"]
+    cursor.execute("SELECT password_hash FROM users WHERE email = %s", (email,))
+    user = cursor.fetchone()
+
+    # If the account already has a password (e.g., email update flow), verification can complete immediately.
+    if user and user.get("password_hash"):
+        cursor.execute("UPDATE users SET is_verified = TRUE WHERE email = %s", (email,))
+        cursor.execute("DELETE FROM verification_tokens WHERE email = %s", (email,))
+        conn.commit()
+        conn.close()
+        flash("Email verified successfully. Please sign in.", "success")
+        return redirect(url_for("login"))
+
     session["pending_verification_email"] = email
     conn.close()
     
@@ -581,7 +594,7 @@ def create_poll_step1():
     if current_user["tier"] == "free":
         owned_poll_count = get_owned_poll_count(current_user["email"])
         if owned_poll_count >= FREE_POLL_LIMIT:
-            flash("Free tier allows 1 active poll at a time. Delete your existing poll or upgrade to paid.", "error")
+            flash("Free tier allows 1 active poll at a time. Delete your existing poll or upgrade to Pro.", "error")
             return redirect(url_for("dashboard"))
 
     session["poll_name"] = poll_name
@@ -957,7 +970,7 @@ def upgrade():
         return redirect(url_for("login"))
 
     if current_user["tier"] == "paid":
-        flash("You're already on the paid tier.", "success")
+        flash("You're already on the Pro tier.", "success")
         return redirect(url_for("dashboard"))
 
     return render_template("upgrade.html")
@@ -1100,11 +1113,84 @@ def profile():
     
     if request.method == "POST":
         display_name = request.form.get("display_name", "").strip()
+        new_email = normalize_email(request.form.get("email", user_email))
         profile_picture = request.form.get("profile_picture", "").strip()
-        
+        current_email = normalize_email(user_email)
+
+        if not new_email:
+            conn.close()
+            flash("Email is required", "error")
+            return redirect(url_for("profile"))
+
+        if not is_allowed_email(new_email):
+            conn.close()
+            flash("Sorry, this email is not authorized to use this app", "error")
+            return redirect(url_for("profile"))
+
+        if new_email != current_email:
+            cursor.execute(
+                "SELECT 1 FROM users WHERE LOWER(email) = %s AND LOWER(email) != %s",
+                (new_email, current_email)
+            )
+            if cursor.fetchone():
+                conn.close()
+                flash("That email is already in use.", "error")
+                return redirect(url_for("profile"))
+
+            token = generate_token()
+
+            cursor.execute(
+                '''
+                UPDATE users
+                SET email = %s, display_name = %s, profile_picture = %s, is_verified = FALSE
+                WHERE LOWER(email) = %s
+                ''',
+                (
+                    new_email,
+                    display_name if display_name else None,
+                    profile_picture if profile_picture else None,
+                    current_email
+                )
+            )
+            cursor.execute(
+                "UPDATE polls SET admin_email = %s WHERE LOWER(admin_email) = %s",
+                (new_email, current_email)
+            )
+            cursor.execute(
+                "UPDATE votes SET user_email = %s WHERE LOWER(user_email) = %s",
+                (new_email, current_email)
+            )
+            cursor.execute(
+                "DELETE FROM verification_tokens WHERE email = %s",
+                (new_email,)
+            )
+            cursor.execute(
+                "INSERT INTO verification_tokens (email, token, expires_at) VALUES (%s, %s, NOW() + INTERVAL '24 hours')",
+                (new_email, token)
+            )
+            conn.commit()
+            conn.close()
+
+            sent, error = send_verification_email(new_email, token, request.url_root)
+            session.pop("user_email", None)
+            session.pop("poll_name", None)
+            session.pop("poll_creator_email", None)
+
+            if sent:
+                flash("Email updated. Please verify your new email before signing in again.", "success")
+            else:
+                flash("Email updated, but we could not send verification right now. Try signing in to resend.", "error")
+                if error:
+                    print(f"ERROR: Verification email send failed for {new_email}: {error}")
+            return redirect(url_for("login"))
+
         cursor.execute(
-            "UPDATE users SET display_name = %s, profile_picture = %s WHERE email = %s",
-            (display_name if display_name else None, profile_picture if profile_picture else None, user_email)
+            "UPDATE users SET display_name = %s, profile_picture = %s WHERE LOWER(email) = %s",
+            (
+                display_name if display_name else None,
+                profile_picture if profile_picture else None,
+                current_email
+            )
         )
         conn.commit()
         flash("Profile updated successfully!", "success")
@@ -1176,6 +1262,7 @@ def logout():
     session.pop("user_email", None)
     session.pop("poll_name", None)
     session.pop("poll_creator_email", None)
+    session.pop("pending_verification_email", None)
     return redirect(url_for("login"))
 
 

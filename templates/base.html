@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>{% block title %}Diamond Dogs Scheduler{% endblock %}</title>
+    <title>{% block title %}Templo{% endblock %}</title>
     <script src="https://cdn.tailwindcss.com"></script>
     {% block extra_head %}{% endblock %}
     <style>
@@ -15,7 +15,7 @@
         <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
             <div class="flex justify-between h-16">
                 <div class="flex items-center">
-                    <a href="/" class="text-xl font-bold text-indigo-600">Diamond Dogs Scheduler</a>
+                    <a href="/" class="text-xl font-bold text-indigo-600">Templo</a>
                 </div>
                 <div class="flex items-center space-x-4 text-sm">
                     {% if current_user %}
@@ -28,7 +28,7 @@
                         <a href="/upgrade" class="text-amber-700 hover:text-amber-800 font-medium">Upgrade</a>
                         <span class="px-2 py-1 rounded-full text-xs font-semibold bg-amber-100 text-amber-700">Free</span>
                         {% else %}
-                        <span class="px-2 py-1 rounded-full text-xs font-semibold bg-green-100 text-green-700">Paid</span>
+                        <span class="px-2 py-1 rounded-full text-xs font-semibold bg-green-100 text-green-700">Pro</span>
                         {% endif %}
                         <a href="/profile" class="text-indigo-600 hover:text-indigo-800 font-medium">{{ get_name(current_user.email) }}</a>
                         <a href="/logout" class="text-red-600 hover:text-red-700">Logout</a>

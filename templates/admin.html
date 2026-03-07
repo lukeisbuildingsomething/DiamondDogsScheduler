@@ -1,6 +1,6 @@
 {% extends "base.html" %}
 
-{% block title %}Admin Panel - Diamond Dogs Scheduler{% endblock %}
+{% block title %}Admin Panel - Templo{% endblock %}
 
 {% block content %}
 <div class="max-w-6xl mx-auto space-y-8">
@@ -48,7 +48,7 @@
                         <td class="py-3 pr-4">
                             <select name="tier" form="{{ form_id }}" class="px-2 py-1 border border-gray-300 rounded">
                                 <option value="free" {% if user.tier == 'free' %}selected{% endif %}>Free</option>
-                                <option value="paid" {% if user.tier == 'paid' %}selected{% endif %}>Paid</option>
+                                <option value="paid" {% if user.tier == 'paid' %}selected{% endif %}>Pro</option>
                             </select>
                         </td>
                         <td class="py-3">
