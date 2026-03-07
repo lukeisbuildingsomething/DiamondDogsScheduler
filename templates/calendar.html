@@ -71,6 +71,9 @@
         <div class="p-5 border-b border-gray-100">
             <h1 class="text-xl font-bold text-gray-900">{{ poll_name }}</h1>
             <p class="text-sm text-gray-500 mt-1">Tap dates to select them</p>
+            {% if max_dates %}
+            <p class="text-xs text-amber-700 mt-2">Free tier: maximum {{ max_dates }} dates per poll.</p>
+            {% endif %}
         </div>
         
         <div class="p-5">
@@ -111,6 +114,7 @@
 
 <script>
     const selectedDates = new Set();
+    const maxDates = {{ max_dates if max_dates else 0 }};
     let currentDate = new Date();
     const today = new Date();
     today.setHours(0, 0, 0, 0);
@@ -182,6 +186,10 @@
             selectedDates.delete(dateStr);
             el.classList.remove('selected');
         } else {
+            if (maxDates && selectedDates.size >= maxDates) {
+                alert(`Free tier allows up to ${maxDates} dates per poll.`);
+                return;
+            }
             selectedDates.add(dateStr);
             el.classList.add('selected');
         }
@@ -206,7 +214,8 @@
     
     function updateSelectedCount() {
         const count = selectedDates.size;
-        document.getElementById('selected-count').textContent = `${count} date${count !== 1 ? 's' : ''} selected`;
+        const limitText = maxDates ? ` (${count}/${maxDates})` : '';
+        document.getElementById('selected-count').textContent = `${count} date${count !== 1 ? 's' : ''} selected${limitText}`;
         document.getElementById('create-btn').disabled = count === 0;
     }
     

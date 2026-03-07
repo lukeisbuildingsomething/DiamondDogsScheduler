@@ -11,8 +11,18 @@
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path>
                 </svg>
             </div>
-            <h1 class="text-2xl font-bold text-gray-900 mb-2">Poll Created!</h1>
-            <p class="text-gray-600">Share this link with your participants so they can vote.</p>
+            <h1 class="text-2xl font-bold text-gray-900 mb-2">Manage Poll Sharing</h1>
+            <p class="text-gray-600">Only invited users (plus the poll creator and admins) can open this poll.</p>
+        </div>
+
+        <div class="mb-6">
+            <label class="block text-sm font-medium text-gray-700 mb-2">Poll Name</label>
+            <input 
+                type="text"
+                id="poll-name"
+                value="{{ poll.name }}"
+                class="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+            >
         </div>
         
         <div class="mb-6">
@@ -41,13 +51,13 @@
                 id="invite-emails"
                 rows="4"
                 class="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
-                placeholder="Enter email addresses, one per line..."
+                placeholder="Enter email addresses, one per line or comma-separated..."
             >{{ poll.invite_emails or '' }}</textarea>
             <button 
-                onclick="saveEmails()"
+                onclick="savePollSettings()"
                 class="mt-2 text-sm text-indigo-600 hover:text-indigo-700"
             >
-                Save emails for reference
+                Save sharing settings
             </button>
         </div>
         
@@ -59,7 +69,7 @@
                 View Poll
             </a>
             <a 
-                href="/"
+                href="/create"
                 class="flex-1 bg-gray-100 text-gray-700 py-3 px-4 rounded-lg font-medium hover:bg-gray-200 transition-colors text-center"
             >
                 Create Another
@@ -79,18 +89,25 @@
         setTimeout(() => successMsg.classList.add('hidden'), 3000);
     }
     
-    async function saveEmails() {
+    async function savePollSettings() {
         const emails = document.getElementById('invite-emails').value;
+        const name = document.getElementById('poll-name').value.trim();
         
-        await fetch('/share/{{ poll.id }}/update-emails', {
+        const response = await fetch('/share/{{ poll.id }}/update-emails', {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json'
             },
-            body: JSON.stringify({ emails })
+            body: JSON.stringify({ emails, name })
         });
-        
-        alert('Emails saved!');
+
+        const data = await response.json();
+        if (!response.ok || data.error) {
+            alert(data.error || 'Failed to save sharing settings.');
+            return;
+        }
+
+        alert(`Sharing settings saved (${data.invite_count || 0} invitees).`);
     }
 </script>
 {% endblock %}

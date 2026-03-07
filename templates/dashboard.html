@@ -4,25 +4,33 @@
 
 {% block content %}
 <div class="max-w-4xl mx-auto">
-    {% if not user_email %}
-    <div class="bg-white rounded-xl shadow-lg p-8 mb-8 text-center">
-        <h2 class="text-xl font-bold text-gray-900 mb-2">Login Required</h2>
-        <p class="text-gray-600 mb-6">Please login to view your polls.</p>
-        
-        <a 
-            href="/login"
-            class="inline-block bg-indigo-600 text-white py-3 px-6 rounded-lg font-medium hover:bg-indigo-700 transition-colors"
-        >
-            Login
+    <div class="flex flex-wrap justify-between items-center gap-4 mb-6">
+        <div>
+            <h1 class="text-2xl font-bold text-gray-900">My Polls</h1>
+            <p class="text-sm text-gray-500 mt-1">You can see polls you created or were explicitly invited to.</p>
+        </div>
+        <div class="flex items-center gap-3">
+            {% if can_create_poll %}
+            <a href="/create" class="bg-indigo-600 text-white py-2 px-4 rounded-lg font-medium hover:bg-indigo-700 transition-colors">
+                Create New Poll
+            </a>
+            {% else %}
+            <a href="/upgrade" class="bg-amber-600 text-white py-2 px-4 rounded-lg font-medium hover:bg-amber-700 transition-colors">
+                Upgrade to Create More
+            </a>
+            {% endif %}
+        </div>
+    </div>
+
+    {% if current_user and current_user.tier == 'free' %}
+    <div class="mb-6 p-4 rounded-lg bg-amber-50 border border-amber-200">
+        <p class="text-sm text-amber-800 font-medium">Free Tier Usage</p>
+        <p class="text-xs text-amber-700 mt-1">Active polls: {{ owned_poll_count }} / {{ free_poll_limit }}. Date limit per poll: {{ free_date_limit }}.</p>
+        <a href="/upgrade" class="inline-block mt-2 text-xs font-semibold text-amber-800 hover:text-amber-900">
+            Upgrade for unlimited polls and unlimited date options
         </a>
     </div>
-    {% else %}
-    <div class="flex justify-between items-center mb-6">
-        <h1 class="text-2xl font-bold text-gray-900">All Polls</h1>
-        <a href="/create" class="bg-indigo-600 text-white py-2 px-4 rounded-lg font-medium hover:bg-indigo-700 transition-colors">
-            Create New Poll
-        </a>
-    </div>
+    {% endif %}
     
     {% if polls %}
     <div class="space-y-4">
@@ -32,26 +40,44 @@
                 <div>
                     <h3 class="text-lg font-semibold text-gray-900">{{ poll.name }}</h3>
                     <p class="text-sm text-gray-500 mt-1">
-                        Created by {{ get_name(poll.admin_email) }}
-                        {% if poll.admin_email == user_email %}
-                        <span class="text-indigo-600">(you)</span>
-                        {% endif %}
+                        Created by {{ get_name(poll.admin_email) }}{% if poll.is_owner %} <span class="text-indigo-600">(you)</span>{% endif %}
                     </p>
+                    <div class="flex flex-wrap items-center gap-2 mt-2">
+                        {% if poll.is_owner %}
+                        <span class="text-xs px-2 py-1 rounded-full bg-indigo-100 text-indigo-700">Owner</span>
+                        {% elif poll.is_invited %}
+                        <span class="text-xs px-2 py-1 rounded-full bg-green-100 text-green-700">Invited</span>
+                        {% endif %}
+                        <span class="text-xs px-2 py-1 rounded-full bg-gray-100 text-gray-700">{{ poll.date_count }} dates</span>
+                        {% if poll.can_manage %}
+                        <span class="text-xs px-2 py-1 rounded-full bg-blue-100 text-blue-700">{{ poll.invite_count }} invitees</span>
+                        {% endif %}
+                    </div>
                     <p class="text-xs text-gray-400 mt-1">{{ poll.created_at }}</p>
                 </div>
-                <div class="flex gap-2">
-                    <button 
-                        onclick="copyPollLink('{{ poll.id }}', this)"
-                        class="bg-indigo-100 text-indigo-700 py-2 px-4 rounded-lg font-medium hover:bg-indigo-200 transition-colors text-sm"
-                    >
-                        Share
-                    </button>
+                <div class="flex flex-wrap gap-2 justify-end">
                     <a 
                         href="/poll/{{ poll.id }}"
                         class="bg-gray-100 text-gray-700 py-2 px-4 rounded-lg font-medium hover:bg-gray-200 transition-colors text-sm"
                     >
                         View
                     </a>
+                    {% if poll.can_manage %}
+                    <a 
+                        href="/share/{{ poll.id }}"
+                        class="bg-indigo-100 text-indigo-700 py-2 px-4 rounded-lg font-medium hover:bg-indigo-200 transition-colors text-sm"
+                    >
+                        Manage
+                    </a>
+                    <form action="/poll/{{ poll.id }}/delete" method="POST" onsubmit="return confirm('Delete this poll?');">
+                        <button 
+                            type="submit"
+                            class="bg-red-100 text-red-700 py-2 px-4 rounded-lg font-medium hover:bg-red-200 transition-colors text-sm"
+                        >
+                            Delete
+                        </button>
+                    </form>
+                    {% endif %}
                 </div>
             </div>
         </div>
@@ -64,33 +90,24 @@
                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"></path>
             </svg>
         </div>
-        <h3 class="text-lg font-medium text-gray-900 mb-2">No polls yet</h3>
-        <p class="text-gray-600 mb-6">Create your first poll to get started!</p>
+        <h3 class="text-lg font-medium text-gray-900 mb-2">No polls available</h3>
+        <p class="text-gray-600 mb-6">Create your first poll or wait until someone invites you.</p>
+        {% if can_create_poll %}
         <a 
             href="/create"
             class="inline-block bg-indigo-600 text-white py-3 px-6 rounded-lg font-medium hover:bg-indigo-700 transition-colors"
         >
             Create a Poll
         </a>
+        {% else %}
+        <a 
+            href="/upgrade"
+            class="inline-block bg-amber-600 text-white py-3 px-6 rounded-lg font-medium hover:bg-amber-700 transition-colors"
+        >
+            Upgrade to Paid
+        </a>
+        {% endif %}
     </div>
     {% endif %}
-    {% endif %}
 </div>
-
-<script>
-function copyPollLink(pollId, button) {
-    const url = window.location.origin + '/poll/' + pollId;
-    navigator.clipboard.writeText(url).then(() => {
-        const originalText = button.textContent;
-        button.textContent = 'Copied!';
-        button.classList.remove('bg-indigo-100', 'text-indigo-700');
-        button.classList.add('bg-green-100', 'text-green-700');
-        setTimeout(() => {
-            button.textContent = originalText;
-            button.classList.remove('bg-green-100', 'text-green-700');
-            button.classList.add('bg-indigo-100', 'text-indigo-700');
-        }, 2000);
-    });
-}
-</script>
 {% endblock %}

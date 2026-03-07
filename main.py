@@ -42,21 +42,73 @@ EMAIL_TO_NAME = {
     "gavyn.mcleod@gmail.com": "Gavyn"
 }
 
+FREE_POLL_LIMIT = 1
+FREE_DATE_LIMIT = 15
+VALID_ROLES = {"user", "admin"}
+VALID_TIERS = {"free", "paid"}
+ADMIN_EMAILS = {
+    email.strip().lower()
+    for email in os.environ.get("ADMIN_EMAILS", "luke.david.reimer@gmail.com").split(",")
+    if email.strip()
+}
+
+
+def normalize_email(email):
+    return (email or "").strip().lower()
+
+
+def parse_invite_emails(raw_emails):
+    if not raw_emails:
+        return []
+
+    invites = set()
+    for entry in raw_emails.replace(",", "\n").splitlines():
+        email = normalize_email(entry)
+        if email and "@" in email:
+            invites.add(email)
+    return sorted(invites)
+
+
+def serialize_invite_emails(emails):
+    normalized = {
+        normalize_email(email)
+        for email in emails
+        if normalize_email(email) and "@" in normalize_email(email)
+    }
+    return "\n".join(sorted(normalized))
+
+
+def default_role_for_email(email):
+    return "admin" if normalize_email(email) in ADMIN_EMAILS else "user"
+
+
+def default_tier_for_email(email):
+    return "paid" if default_role_for_email(email) == "admin" else "free"
+
+
+def is_valid_date_string(value):
+    try:
+        datetime.strptime(value, "%Y-%m-%d")
+        return True
+    except (TypeError, ValueError):
+        return False
+
 
 def get_name(email):
     if email:
+        normalized_email = normalize_email(email)
         # First check if user has a custom display_name in database
         try:
             conn = get_db()
             cursor = conn.cursor(cursor_factory=RealDictCursor)
-            cursor.execute("SELECT display_name FROM users WHERE email = %s", (email.lower().strip(),))
+            cursor.execute("SELECT display_name FROM users WHERE email = %s", (normalized_email,))
             user = cursor.fetchone()
             conn.close()
             if user and user.get("display_name"):
                 return user["display_name"]
         except:
             pass
-        return EMAIL_TO_NAME.get(email.lower().strip(), email.split('@')[0])
+        return EMAIL_TO_NAME.get(normalized_email, normalized_email.split('@')[0])
     return ""
 
 
@@ -65,9 +117,13 @@ def get_user_profile(email):
     if not email:
         return None
     try:
+        normalized_email = normalize_email(email)
         conn = get_db()
         cursor = conn.cursor(cursor_factory=RealDictCursor)
-        cursor.execute("SELECT email, display_name, profile_picture FROM users WHERE email = %s", (email.lower().strip(),))
+        cursor.execute(
+            "SELECT email, display_name, profile_picture, role, tier, is_verified FROM users WHERE email = %s",
+            (normalized_email,)
+        )
         user = cursor.fetchone()
         conn.close()
         return user
@@ -76,7 +132,7 @@ def get_user_profile(email):
 
 
 def is_allowed_email(email):
-    return email.lower().strip() in [e.lower() for e in ALLOWED_EMAILS]
+    return normalize_email(email) in [normalize_email(e) for e in ALLOWED_EMAILS]
 
 
 def generate_short_id(length=5):
@@ -142,6 +198,85 @@ def send_verification_email(to_email, token, request_url_root):
         return False, str(e)
 
 
+def get_current_user():
+    user_email = normalize_email(session.get("user_email"))
+    if not user_email:
+        return None
+
+    user = get_user_profile(user_email)
+    if not user:
+        return {
+            "email": user_email,
+            "display_name": None,
+            "profile_picture": None,
+            "role": default_role_for_email(user_email),
+            "tier": default_tier_for_email(user_email),
+            "is_verified": False
+        }
+
+    user["email"] = normalize_email(user["email"])
+    user["role"] = (user.get("role") or default_role_for_email(user["email"])).lower()
+    user["tier"] = (user.get("tier") or default_tier_for_email(user["email"])).lower()
+    return user
+
+
+def is_admin_user(user):
+    return bool(user and user.get("role") == "admin")
+
+
+def user_can_manage_poll(user, poll):
+    if not user or not poll:
+        return False
+    if is_admin_user(user):
+        return True
+    return normalize_email(poll.get("admin_email")) == normalize_email(user.get("email"))
+
+
+def user_can_access_poll(user, poll):
+    if not user or not poll:
+        return False
+    if user_can_manage_poll(user, poll):
+        return True
+
+    invited_emails = parse_invite_emails(poll.get("invite_emails"))
+    return normalize_email(user.get("email")) in invited_emails
+
+
+def get_owned_poll_count(email):
+    conn = get_db()
+    cursor = conn.cursor()
+    cursor.execute("SELECT COUNT(*) FROM polls WHERE LOWER(admin_email) = %s", (normalize_email(email),))
+    count = cursor.fetchone()[0]
+    conn.close()
+    return count
+
+
+def delete_poll_records(cursor, poll_id):
+    cursor.execute("SELECT id FROM dates WHERE poll_id = %s", (poll_id,))
+    date_rows = cursor.fetchall()
+    date_ids = [
+        row["id"] if isinstance(row, dict) else row[0]
+        for row in date_rows
+    ]
+
+    for date_id in date_ids:
+        cursor.execute("DELETE FROM votes WHERE date_id = %s", (date_id,))
+
+    cursor.execute("DELETE FROM dates WHERE poll_id = %s", (poll_id,))
+    cursor.execute("DELETE FROM polls WHERE id = %s", (poll_id,))
+
+
+def sync_admin_account(conn, email):
+    normalized_email = normalize_email(email)
+    if normalized_email not in ADMIN_EMAILS:
+        return
+    cursor = conn.cursor()
+    cursor.execute(
+        "UPDATE users SET role = 'admin', tier = 'paid' WHERE LOWER(email) = %s",
+        (normalized_email,)
+    )
+
+
 def get_db():
     conn = psycopg2.connect(DATABASE_URL)
     return conn
@@ -186,6 +321,8 @@ def init_db():
             email TEXT UNIQUE NOT NULL,
             password_hash TEXT,
             is_verified BOOLEAN DEFAULT FALSE,
+            role TEXT DEFAULT 'user',
+            tier TEXT DEFAULT 'free',
             display_name TEXT,
             profile_picture TEXT,
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
@@ -196,6 +333,15 @@ def init_db():
     try:
         cursor.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS display_name TEXT")
         cursor.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS profile_picture TEXT")
+        cursor.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS role TEXT DEFAULT 'user'")
+        cursor.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS tier TEXT DEFAULT 'free'")
+        cursor.execute("UPDATE users SET role = 'user' WHERE role IS NULL OR role = ''")
+        cursor.execute("UPDATE users SET tier = 'free' WHERE tier IS NULL OR tier = ''")
+        for admin_email in ADMIN_EMAILS:
+            cursor.execute(
+                "UPDATE users SET role = 'admin', tier = 'paid' WHERE LOWER(email) = %s",
+                (admin_email,)
+            )
     except:
         pass
     
@@ -218,7 +364,12 @@ init_db()
 
 @app.context_processor
 def utility_processor():
-    return dict(get_name=get_name)
+    current_user = get_current_user()
+    return dict(
+        get_name=get_name,
+        current_user=current_user,
+        is_admin=is_admin_user(current_user)
+    )
 
 
 @app.route("/")
@@ -231,7 +382,7 @@ def home():
 @app.route("/login", methods=["GET", "POST"])
 def login():
     if request.method == "POST":
-        email = request.form.get("email", "").strip().lower()
+        email = normalize_email(request.form.get("email", ""))
         password = request.form.get("password", "")
         
         if not email:
@@ -248,11 +399,27 @@ def login():
         cursor.execute("SELECT * FROM users WHERE email = %s", (email,))
         user = cursor.fetchone()
         conn.close()
+
+        if user and email in ADMIN_EMAILS and (user.get("role") != "admin" or user.get("tier") != "paid"):
+            conn = get_db()
+            sync_admin_account(conn, email)
+            conn.commit()
+            conn.close()
+
+            conn = get_db()
+            cursor = conn.cursor(cursor_factory=RealDictCursor)
+            cursor.execute("SELECT * FROM users WHERE email = %s", (email,))
+            user = cursor.fetchone()
+            conn.close()
         
         if not user:
             conn = get_db()
             cursor = conn.cursor()
-            cursor.execute("INSERT INTO users (email) VALUES (%s) ON CONFLICT DO NOTHING", (email,))
+            cursor.execute(
+                "INSERT INTO users (email, role, tier) VALUES (%s, %s, %s) ON CONFLICT DO NOTHING",
+                (email, default_role_for_email(email), default_tier_for_email(email))
+            )
+            sync_admin_account(conn, email)
             conn.commit()
             conn.close()
             
@@ -376,60 +543,122 @@ def set_password():
 
 @app.route("/create")
 def create_poll():
-    if not session.get("user_email"):
+    current_user = get_current_user()
+
+    if not current_user:
         flash("Please log in first", "error")
         return redirect(url_for("login"))
-    return render_template("home.html", user_email=session.get("user_email"))
+
+    owned_poll_count = get_owned_poll_count(current_user["email"])
+    free_limit_reached = current_user["tier"] == "free" and owned_poll_count >= FREE_POLL_LIMIT
+
+    return render_template(
+        "home.html",
+        user_email=current_user["email"],
+        owned_poll_count=owned_poll_count,
+        free_poll_limit=FREE_POLL_LIMIT,
+        free_date_limit=FREE_DATE_LIMIT,
+        can_create_poll=not free_limit_reached
+    )
 
 
 @app.route("/create", methods=["POST"])
 def create_poll_step1():
-    admin_email = request.form.get("admin_email", "").strip()
+    current_user = get_current_user()
+    if not current_user:
+        flash("Please log in first", "error")
+        return redirect(url_for("login"))
+
     poll_name = request.form.get("poll_name", "").strip()
     
-    if not admin_email or not poll_name:
+    if not poll_name:
         flash("Please fill in all fields", "error")
-        return redirect(url_for("home"))
-    
-    if not is_allowed_email(admin_email):
-        flash("Sorry, this email is not authorized to use this app", "error")
-        return redirect(url_for("home"))
-    
-    session["admin_email"] = admin_email
+        return redirect(url_for("create_poll"))
+    if len(poll_name) > 120:
+        flash("Poll name is too long (max 120 characters).", "error")
+        return redirect(url_for("create_poll"))
+
+    if current_user["tier"] == "free":
+        owned_poll_count = get_owned_poll_count(current_user["email"])
+        if owned_poll_count >= FREE_POLL_LIMIT:
+            flash("Free tier allows 1 active poll at a time. Delete your existing poll or upgrade to paid.", "error")
+            return redirect(url_for("dashboard"))
+
     session["poll_name"] = poll_name
-    session["user_email"] = admin_email
+    session["poll_creator_email"] = current_user["email"]
     
     return redirect(url_for("calendar_view"))
 
 
 @app.route("/calendar")
 def calendar_view():
-    if "admin_email" not in session or "poll_name" not in session:
+    current_user = get_current_user()
+    if not current_user:
+        flash("Please log in first", "error")
+        return redirect(url_for("login"))
+
+    if "poll_name" not in session:
         flash("Please start by creating a poll", "error")
-        return redirect(url_for("home"))
-    
-    return render_template("calendar.html", poll_name=session["poll_name"])
+        return redirect(url_for("create_poll"))
+
+    if normalize_email(session.get("poll_creator_email")) != normalize_email(current_user["email"]):
+        flash("Poll creation session expired. Please start again.", "error")
+        session.pop("poll_name", None)
+        session.pop("poll_creator_email", None)
+        return redirect(url_for("create_poll"))
+
+    max_dates = FREE_DATE_LIMIT if current_user["tier"] == "free" else None
+    return render_template(
+        "calendar.html",
+        poll_name=session["poll_name"],
+        max_dates=max_dates
+    )
 
 
 @app.route("/finalize", methods=["POST"])
 def finalize_poll():
-    if "admin_email" not in session or "poll_name" not in session:
+    current_user = get_current_user()
+    if not current_user:
+        return jsonify({"error": "Please log in first"}), 401
+
+    if "poll_name" not in session:
+        return jsonify({"error": "Session expired"}), 400
+
+    if normalize_email(session.get("poll_creator_email")) != normalize_email(current_user["email"]):
         return jsonify({"error": "Session expired"}), 400
     
-    data = request.get_json()
-    selected_dates = data.get("dates", [])
+    data = request.get_json(silent=True) or {}
+    selected_dates = sorted(set(data.get("dates", [])))
     
     if not selected_dates:
         return jsonify({"error": "Please select at least one date"}), 400
-    
-    poll_id = generate_short_id()
+
+    if any(not is_valid_date_string(date_str) for date_str in selected_dates):
+        return jsonify({"error": "One or more selected dates are invalid."}), 400
+
+    today_iso = datetime.utcnow().strftime("%Y-%m-%d")
+    if any(date_str < today_iso for date_str in selected_dates):
+        return jsonify({"error": "Past dates are not allowed."}), 400
+
+    if current_user["tier"] == "free":
+        if len(selected_dates) > FREE_DATE_LIMIT:
+            return jsonify({"error": f"Free tier allows up to {FREE_DATE_LIMIT} dates per poll."}), 400
+        owned_poll_count = get_owned_poll_count(current_user["email"])
+        if owned_poll_count >= FREE_POLL_LIMIT:
+            return jsonify({"error": "Free tier allows 1 active poll at a time. Delete your existing poll or upgrade."}), 400
     
     conn = get_db()
     cursor = conn.cursor()
+
+    poll_id = generate_short_id()
+    cursor.execute("SELECT 1 FROM polls WHERE id = %s", (poll_id,))
+    while cursor.fetchone():
+        poll_id = generate_short_id()
+        cursor.execute("SELECT 1 FROM polls WHERE id = %s", (poll_id,))
     
     cursor.execute(
         "INSERT INTO polls (id, name, admin_email) VALUES (%s, %s, %s)",
-        (poll_id, session["poll_name"], session["admin_email"])
+        (poll_id, session["poll_name"], current_user["email"])
     )
     
     date_ids = []
@@ -443,28 +672,42 @@ def finalize_poll():
     for date_id in date_ids:
         cursor.execute(
             "INSERT INTO votes (date_id, user_email, status) VALUES (%s, %s, 'yes')",
-            (date_id, session["admin_email"])
+            (date_id, current_user["email"])
         )
     
     conn.commit()
     conn.close()
     
     session.pop("poll_name", None)
+    session.pop("poll_creator_email", None)
     
     return jsonify({"poll_id": poll_id})
 
 
 @app.route("/share/<poll_id>")
 def share_poll(poll_id):
+    current_user = get_current_user()
+    if not current_user:
+        flash("Please log in first", "error")
+        return redirect(url_for("login"))
+
     conn = get_db()
     cursor = conn.cursor(cursor_factory=RealDictCursor)
     cursor.execute("SELECT * FROM polls WHERE id = %s", (poll_id,))
     poll = cursor.fetchone()
-    conn.close()
     
     if not poll:
         flash("Poll not found", "error")
+        conn.close()
         return redirect(url_for("home"))
+
+    if not user_can_manage_poll(current_user, poll):
+        flash("Only the poll creator or an admin can manage sharing settings.", "error")
+        conn.close()
+        return redirect(url_for("view_poll", poll_id=poll_id))
+
+    poll["invite_emails"] = serialize_invite_emails(parse_invite_emails(poll.get("invite_emails")))
+    conn.close()
     
     poll_url = request.url_root.rstrip("/") + url_for("view_poll", poll_id=poll_id)
     
@@ -473,20 +716,54 @@ def share_poll(poll_id):
 
 @app.route("/share/<poll_id>/update-emails", methods=["POST"])
 def update_invite_emails(poll_id):
-    data = request.get_json()
+    current_user = get_current_user()
+    if not current_user:
+        return jsonify({"error": "Please log in first"}), 401
+
+    data = request.get_json(silent=True) or {}
     emails = data.get("emails", "")
+    poll_name = (data.get("name") or "").strip()
+    if poll_name and len(poll_name) > 120:
+        return jsonify({"error": "Poll name is too long (max 120 characters)."}), 400
     
     conn = get_db()
-    cursor = conn.cursor()
-    cursor.execute("UPDATE polls SET invite_emails = %s WHERE id = %s", (emails, poll_id))
+    cursor = conn.cursor(cursor_factory=RealDictCursor)
+    cursor.execute("SELECT * FROM polls WHERE id = %s", (poll_id,))
+    poll = cursor.fetchone()
+
+    if not poll:
+        conn.close()
+        return jsonify({"error": "Poll not found"}), 404
+
+    if not user_can_manage_poll(current_user, poll):
+        conn.close()
+        return jsonify({"error": "You do not have permission to edit this poll"}), 403
+
+    invite_text = serialize_invite_emails(parse_invite_emails(emails))
+    if poll_name:
+        cursor.execute(
+            "UPDATE polls SET name = %s, invite_emails = %s WHERE id = %s",
+            (poll_name, invite_text, poll_id)
+        )
+    else:
+        cursor.execute(
+            "UPDATE polls SET invite_emails = %s WHERE id = %s",
+            (invite_text, poll_id)
+        )
+
     conn.commit()
     conn.close()
     
-    return jsonify({"success": True})
+    return jsonify({"success": True, "invite_count": len(parse_invite_emails(invite_text))})
 
 
 @app.route("/poll/<poll_id>")
 def view_poll(poll_id):
+    current_user = get_current_user()
+    if not current_user:
+        flash("Please log in first to view this poll.", "error")
+        return redirect(url_for("login"))
+
     conn = get_db()
     cursor = conn.cursor(cursor_factory=RealDictCursor)
     
@@ -497,6 +774,11 @@ def view_poll(poll_id):
         conn.close()
         flash("Poll not found", "error")
         return redirect(url_for("home"))
+
+    if not user_can_access_poll(current_user, poll):
+        conn.close()
+        flash("You are not invited to this poll.", "error")
+        return redirect(url_for("dashboard"))
     
     cursor.execute("SELECT * FROM dates WHERE poll_id = %s ORDER BY date", (poll_id,))
     dates = cursor.fetchall()
@@ -504,7 +786,6 @@ def view_poll(poll_id):
     votes_dict = {}
     participants = set()
     yes_counts = {}
-    dates_to_remove = []
     
     for date in dates:
         cursor.execute(
@@ -512,30 +793,18 @@ def view_poll(poll_id):
             (date["id"],)
         )
         date_votes = cursor.fetchall()
-        
-        if date_votes and all(v["status"] == "no" for v in date_votes):
-            dates_to_remove.append(date["id"])
-            continue
             
         votes_dict[date["id"]] = {v["user_email"]: v["status"] for v in date_votes}
         yes_counts[date["id"]] = sum(1 for v in date_votes if v["status"] == "yes")
         for v in date_votes:
             participants.add(v["user_email"])
     
-    for date_id in dates_to_remove:
-        cursor.execute("DELETE FROM votes WHERE date_id = %s", (date_id,))
-        cursor.execute("DELETE FROM dates WHERE id = %s", (date_id,))
-    
-    if dates_to_remove:
-        conn.commit()
-        dates = [d for d in dates if d["id"] not in dates_to_remove]
-    
     conn.close()
     
     max_yes = max(yes_counts.values()) if yes_counts else 0
     best_dates = [d_id for d_id, count in yes_counts.items() if count == max_yes and max_yes > 0]
     
-    user_email = session.get("user_email")
+    poll["can_manage"] = user_can_manage_poll(current_user, poll)
     
     return render_template(
         "vote.html",
@@ -543,16 +812,16 @@ def view_poll(poll_id):
         dates=dates,
         votes_dict=votes_dict,
         participants=sorted(participants),
-        user_email=user_email,
+        user_email=current_user["email"],
         best_dates=best_dates
     )
 
 
 @app.route("/poll/<poll_id>/delete", methods=["POST"])
 def delete_poll(poll_id):
-    user_email = session.get("user_email")
+    current_user = get_current_user()
     
-    if not user_email:
+    if not current_user:
         flash("Please log in first", "error")
         return redirect(url_for("view_poll", poll_id=poll_id))
     
@@ -567,19 +836,12 @@ def delete_poll(poll_id):
         flash("Poll not found", "error")
         return redirect(url_for("home"))
     
-    if poll["admin_email"].lower() != user_email.lower():
+    if not user_can_manage_poll(current_user, poll):
         conn.close()
-        flash("Only the poll creator can delete this poll", "error")
+        flash("Only the poll creator or an admin can delete this poll", "error")
         return redirect(url_for("view_poll", poll_id=poll_id))
     
-    cursor.execute("SELECT id FROM dates WHERE poll_id = %s", (poll_id,))
-    date_ids = [row["id"] for row in cursor.fetchall()]
-    
-    for date_id in date_ids:
-        cursor.execute("DELETE FROM votes WHERE date_id = %s", (date_id,))
-    
-    cursor.execute("DELETE FROM dates WHERE poll_id = %s", (poll_id,))
-    cursor.execute("DELETE FROM polls WHERE id = %s", (poll_id,))
+    delete_poll_records(cursor, poll_id)
     
     conn.commit()
     conn.close()
@@ -592,62 +854,235 @@ def delete_poll(poll_id):
 
 @app.route("/poll/<poll_id>/vote", methods=["POST"])
 def submit_vote(poll_id):
-    if "user_email" not in session:
+    current_user = get_current_user()
+    if not current_user:
         return jsonify({"error": "Please log in first"}), 401
     
-    data = request.get_json()
+    data = request.get_json(silent=True) or {}
     date_id = data.get("date_id")
     status = data.get("status")
     
     if not date_id or status not in ["yes", "no", "maybe"]:
         return jsonify({"error": "Invalid vote data"}), 400
+
+    try:
+        date_id = int(date_id)
+    except (TypeError, ValueError):
+        return jsonify({"error": "Invalid date ID"}), 400
     
     conn = get_db()
     cursor = conn.cursor(cursor_factory=RealDictCursor)
+
+    cursor.execute("SELECT * FROM polls WHERE id = %s", (poll_id,))
+    poll = cursor.fetchone()
+    if not poll:
+        conn.close()
+        return jsonify({"error": "Poll not found"}), 404
+
+    if not user_can_access_poll(current_user, poll):
+        conn.close()
+        return jsonify({"error": "You are not invited to this poll"}), 403
+
+    cursor.execute("SELECT id FROM dates WHERE id = %s AND poll_id = %s", (date_id, poll_id))
+    if not cursor.fetchone():
+        conn.close()
+        return jsonify({"error": "Invalid date for this poll"}), 400
     
     cursor.execute(
         '''INSERT INTO votes (date_id, user_email, status)
            VALUES (%s, %s, %s)
            ON CONFLICT(date_id, user_email)
            DO UPDATE SET status = EXCLUDED.status''',
-        (date_id, session["user_email"], status)
+        (date_id, current_user["email"], status)
     )
-    
-    date_removed = False
-    if status == "no":
-        cursor.execute("SELECT status FROM votes WHERE date_id = %s", (date_id,))
-        all_votes = cursor.fetchall()
-        if all_votes and all(v["status"] == "no" for v in all_votes):
-            cursor.execute("DELETE FROM votes WHERE date_id = %s", (date_id,))
-            cursor.execute("DELETE FROM dates WHERE id = %s", (date_id,))
-            date_removed = True
     
     conn.commit()
     conn.close()
     
-    return jsonify({"success": True, "date_removed": date_removed})
+    return jsonify({"success": True, "date_removed": False})
 
 
 @app.route("/dashboard")
 def dashboard():
-    user_email = session.get("user_email")
-    
-    if not user_email:
+    current_user = get_current_user()
+
+    if not current_user:
         return redirect(url_for("login"))
-    
+
     conn = get_db()
     cursor = conn.cursor(cursor_factory=RealDictCursor)
-    
-    # Show ALL polls, not just user's polls
+
     cursor.execute('''
-        SELECT * FROM polls
-        ORDER BY created_at DESC
+        SELECT p.*, COUNT(d.id) AS date_count
+        FROM polls p
+        LEFT JOIN dates d ON d.poll_id = p.id
+        GROUP BY p.id
+        ORDER BY p.created_at DESC
     ''')
-    
+    all_polls = cursor.fetchall()
+    conn.close()
+
+    visible_polls = []
+    for poll in all_polls:
+        if not user_can_access_poll(current_user, poll):
+            continue
+
+        is_owner = normalize_email(poll["admin_email"]) == normalize_email(current_user["email"])
+        invited_set = set(parse_invite_emails(poll.get("invite_emails")))
+        poll["is_owner"] = is_owner
+        poll["is_invited"] = normalize_email(current_user["email"]) in invited_set and not is_owner
+        poll["can_manage"] = user_can_manage_poll(current_user, poll)
+        poll["invite_count"] = len(invited_set)
+        visible_polls.append(poll)
+
+    owned_poll_count = get_owned_poll_count(current_user["email"])
+    can_create_poll = not (current_user["tier"] == "free" and owned_poll_count >= FREE_POLL_LIMIT)
+
+    return render_template(
+        "dashboard.html",
+        polls=visible_polls,
+        user_email=current_user["email"],
+        owned_poll_count=owned_poll_count,
+        free_poll_limit=FREE_POLL_LIMIT,
+        free_date_limit=FREE_DATE_LIMIT,
+        can_create_poll=can_create_poll
+    )
+
+
+@app.route("/upgrade")
+def upgrade():
+    current_user = get_current_user()
+    if not current_user:
+        flash("Please log in first", "error")
+        return redirect(url_for("login"))
+
+    if current_user["tier"] == "paid":
+        flash("You're already on the paid tier.", "success")
+        return redirect(url_for("dashboard"))
+
+    return render_template("upgrade.html")
+
+
+@app.route("/admin")
+def admin_panel():
+    current_user = get_current_user()
+    if not is_admin_user(current_user):
+        flash("Admin access required.", "error")
+        return redirect(url_for("dashboard"))
+
+    conn = get_db()
+    cursor = conn.cursor(cursor_factory=RealDictCursor)
+
+    cursor.execute(
+        '''
+        SELECT
+            u.email,
+            u.display_name,
+            u.role,
+            u.tier,
+            u.is_verified,
+            u.created_at,
+            COUNT(p.id) AS owned_poll_count
+        FROM users u
+        LEFT JOIN polls p ON LOWER(p.admin_email) = LOWER(u.email)
+        GROUP BY u.email, u.display_name, u.role, u.tier, u.is_verified, u.created_at
+        ORDER BY u.created_at ASC
+        '''
+    )
+    users = cursor.fetchall()
+
+    cursor.execute(
+        '''
+        SELECT p.*, COUNT(d.id) AS date_count
+        FROM polls p
+        LEFT JOIN dates d ON d.poll_id = p.id
+        GROUP BY p.id
+        ORDER BY p.created_at DESC
+        '''
+    )
     polls = cursor.fetchall()
     conn.close()
-    
-    return render_template("dashboard.html", polls=polls, user_email=user_email)
+
+    for poll in polls:
+        poll["invite_count"] = len(parse_invite_emails(poll.get("invite_emails")))
+
+    return render_template("admin.html", users=users, polls=polls)
+
+
+@app.route("/admin/users/<path:target_email>/update", methods=["POST"])
+def admin_update_user(target_email):
+    current_user = get_current_user()
+    if not is_admin_user(current_user):
+        flash("Admin access required.", "error")
+        return redirect(url_for("dashboard"))
+
+    target_email = normalize_email(target_email)
+    role = (request.form.get("role") or "").strip().lower()
+    tier = (request.form.get("tier") or "").strip().lower()
+
+    if role not in VALID_ROLES or tier not in VALID_TIERS:
+        flash("Invalid role or tier selection.", "error")
+        return redirect(url_for("admin_panel"))
+
+    if role == "admin":
+        tier = "paid"
+
+    if target_email in ADMIN_EMAILS:
+        role = "admin"
+        tier = "paid"
+
+    conn = get_db()
+    cursor = conn.cursor(cursor_factory=RealDictCursor)
+
+    if role != "admin":
+        cursor.execute("SELECT COUNT(*) AS admin_count FROM users WHERE role = 'admin'")
+        admin_count = cursor.fetchone()["admin_count"]
+        cursor.execute("SELECT role FROM users WHERE LOWER(email) = %s", (target_email,))
+        current_target = cursor.fetchone()
+        if current_target and current_target["role"] == "admin" and admin_count <= 1:
+            conn.close()
+            flash("At least one admin must remain in the system.", "error")
+            return redirect(url_for("admin_panel"))
+
+    cursor.execute(
+        "UPDATE users SET role = %s, tier = %s WHERE LOWER(email) = %s",
+        (role, tier, target_email)
+    )
+    if cursor.rowcount == 0:
+        conn.close()
+        flash("User not found.", "error")
+        return redirect(url_for("admin_panel"))
+
+    conn.commit()
+    conn.close()
+
+    flash("User updated successfully.", "success")
+    return redirect(url_for("admin_panel"))
+
+
+@app.route("/admin/polls/<poll_id>/delete", methods=["POST"])
+def admin_delete_poll(poll_id):
+    current_user = get_current_user()
+    if not is_admin_user(current_user):
+        flash("Admin access required.", "error")
+        return redirect(url_for("dashboard"))
+
+    conn = get_db()
+    cursor = conn.cursor(cursor_factory=RealDictCursor)
+    cursor.execute("SELECT id FROM polls WHERE id = %s", (poll_id,))
+    poll = cursor.fetchone()
+
+    if not poll:
+        conn.close()
+        flash("Poll not found.", "error")
+        return redirect(url_for("admin_panel"))
+
+    delete_poll_records(cursor, poll_id)
+    conn.commit()
+    conn.close()
+
+    flash("Poll deleted.", "success")
+    return redirect(url_for("admin_panel"))
 
 
 
@@ -674,11 +1109,12 @@ def profile():
         conn.commit()
         flash("Profile updated successfully!", "success")
     
-    cursor.execute("SELECT email, display_name, profile_picture FROM users WHERE email = %s", (user_email,))
+    cursor.execute("SELECT email, display_name, profile_picture FROM users WHERE email = %s", (normalize_email(user_email),))
     user = cursor.fetchone()
     conn.close()
     
-    default_name = EMAIL_TO_NAME.get(user_email.lower().strip(), user_email.split('@')[0])
+    normalized_email = normalize_email(user_email)
+    default_name = EMAIL_TO_NAME.get(normalized_email, normalized_email.split('@')[0])
     
     return render_template("profile.html", user=user, default_name=default_name)
 
@@ -738,8 +1174,8 @@ def upload_profile_photo():
 @app.route("/logout")
 def logout():
     session.pop("user_email", None)
-    session.pop("admin_email", None)
     session.pop("poll_name", None)
+    session.pop("poll_creator_email", None)
     return redirect(url_for("login"))
 
 

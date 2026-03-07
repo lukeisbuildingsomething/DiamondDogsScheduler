@@ -1,0 +1,43 @@
+{% extends "base.html" %}
+
+{% block title %}Upgrade - Diamond Dogs Scheduler{% endblock %}
+
+{% block content %}
+<div class="max-w-3xl mx-auto">
+    <div class="bg-white rounded-xl shadow-lg p-8">
+        <h1 class="text-2xl font-bold text-gray-900 mb-2">Upgrade to Paid</h1>
+        <p class="text-gray-600 mb-8">Unlock unlimited polls and unlimited date options per poll.</p>
+
+        <div class="grid md:grid-cols-2 gap-4 mb-8">
+            <div class="border border-gray-200 rounded-lg p-5">
+                <h2 class="font-semibold text-gray-900 mb-3">Free</h2>
+                <ul class="text-sm text-gray-600 space-y-2">
+                    <li>1 active poll at a time</li>
+                    <li>Up to 15 dates per poll</li>
+                    <li>Vote on invited polls</li>
+                </ul>
+            </div>
+            <div class="border border-indigo-200 bg-indigo-50 rounded-lg p-5">
+                <h2 class="font-semibold text-indigo-900 mb-3">Paid</h2>
+                <ul class="text-sm text-indigo-800 space-y-2">
+                    <li>Unlimited active polls</li>
+                    <li>Unlimited dates per poll</li>
+                    <li>Priority support (planned)</li>
+                </ul>
+            </div>
+        </div>
+
+        <div class="p-4 rounded-lg bg-amber-50 border border-amber-200 mb-6">
+            <p class="text-sm text-amber-800 font-medium">Payments integration coming soon</p>
+            <p class="text-xs text-amber-700 mt-1">This page is ready for Stripe/Google-auth expansion. For now, an admin can upgrade users manually from the Admin panel.</p>
+        </div>
+
+        <div class="flex gap-3">
+            <a href="/dashboard" class="bg-gray-100 text-gray-700 py-3 px-5 rounded-lg font-medium hover:bg-gray-200 transition-colors">Back to Dashboard</a>
+            {% if is_admin %}
+            <a href="/admin" class="bg-indigo-600 text-white py-3 px-5 rounded-lg font-medium hover:bg-indigo-700 transition-colors">Open Admin Panel</a>
+            {% endif %}
+        </div>
+    </div>
+</div>
+{% endblock %}
