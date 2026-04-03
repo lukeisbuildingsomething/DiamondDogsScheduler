@@ -1,0 +1,165 @@
+{% extends "marketing_base.html" %}
+
+{% block title %}Contact Us — Templo{% endblock %}
+{% block meta_description %}Get in touch with the Templo team. Questions, feedback, enterprise inquiries — we'd love to hear from you.{% endblock %}
+
+{% block content %}
+
+<!-- Hero -->
+<section class="hero-gradient pt-12 pb-16 lg:pt-20 lg:pb-24">
+    <div class="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 text-center">
+        <h1 class="text-4xl sm:text-5xl lg:text-6xl font-extrabold tracking-tight leading-[1.1] mb-6">
+            Let's <span class="gradient-text">talk</span>
+        </h1>
+        <p class="text-lg sm:text-xl text-gray-600 max-w-2xl mx-auto leading-relaxed">
+            Questions, feedback, partnership ideas, or just want to say hi? We read every message.
+        </p>
+    </div>
+</section>
+
+<!-- Contact Form + Info -->
+<section class="py-20 lg:py-28">
+    <div class="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8">
+        <div class="grid lg:grid-cols-5 gap-12 lg:gap-16">
+
+            <!-- Contact Form -->
+            <div class="lg:col-span-3">
+                <div class="bg-white rounded-2xl border border-gray-200 shadow-sm p-8 lg:p-10">
+                    <h2 class="text-2xl font-bold text-gray-900 mb-6">Send us a message</h2>
+                    <form action="/contact" method="POST" class="space-y-6">
+                        <div class="grid sm:grid-cols-2 gap-6">
+                            <div>
+                                <label for="contact_name" class="block text-sm font-medium text-gray-700 mb-1.5">Name</label>
+                                <input
+                                    type="text"
+                                    id="contact_name"
+                                    name="name"
+                                    required
+                                    class="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-brand-500 focus:border-brand-500 transition-colors"
+                                    placeholder="Your name"
+                                >
+                            </div>
+                            <div>
+                                <label for="contact_email" class="block text-sm font-medium text-gray-700 mb-1.5">Email</label>
+                                <input
+                                    type="email"
+                                    id="contact_email"
+                                    name="email"
+                                    required
+                                    class="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-brand-500 focus:border-brand-500 transition-colors"
+                                    placeholder="you@example.com"
+                                >
+                            </div>
+                        </div>
+
+                        <div>
+                            <label for="contact_subject" class="block text-sm font-medium text-gray-700 mb-1.5">What's this about?</label>
+                            <select
+                                id="contact_subject"
+                                name="subject"
+                                class="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-brand-500 focus:border-brand-500 transition-colors bg-white"
+                            >
+                                <option value="general">General Question</option>
+                                <option value="feedback">Product Feedback</option>
+                                <option value="bug">Bug Report</option>
+                                <option value="enterprise">Enterprise Inquiry</option>
+                                <option value="partnership">Partnership</option>
+                                <option value="other">Something Else</option>
+                            </select>
+                        </div>
+
+                        <div>
+                            <label for="contact_message" class="block text-sm font-medium text-gray-700 mb-1.5">Message</label>
+                            <textarea
+                                id="contact_message"
+                                name="message"
+                                rows="5"
+                                required
+                                class="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-brand-500 focus:border-brand-500 transition-colors"
+                                placeholder="Tell us what's on your mind..."
+                            ></textarea>
+                        </div>
+
+                        <button
+                            type="submit"
+                            class="w-full sm:w-auto inline-flex items-center justify-center px-8 py-3.5 bg-brand-600 text-white font-semibold rounded-xl hover:bg-brand-700 transition-all shadow-lg shadow-brand-600/25"
+                        >
+                            Send Message
+                            <svg class="ml-2 w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14 5l7 7m0 0l-7 7m7-7H3"/></svg>
+                        </button>
+                    </form>
+                </div>
+            </div>
+
+            <!-- Sidebar Info -->
+            <div class="lg:col-span-2 space-y-8">
+
+                <div class="bg-white rounded-2xl border border-gray-200 shadow-sm p-8">
+                    <h3 class="text-lg font-bold text-gray-900 mb-4">Quick answers</h3>
+                    <div class="space-y-4">
+                        <div class="flex items-start gap-3">
+                            <div class="w-8 h-8 bg-brand-100 rounded-lg flex items-center justify-center flex-shrink-0">
+                                <svg class="w-4 h-4 text-brand-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+                            </div>
+                            <div>
+                                <p class="text-sm font-semibold text-gray-900">Response time</p>
+                                <p class="text-sm text-gray-600">We typically reply within 24 hours.</p>
+                            </div>
+                        </div>
+                        <div class="flex items-start gap-3">
+                            <div class="w-8 h-8 bg-green-100 rounded-lg flex items-center justify-center flex-shrink-0">
+                                <svg class="w-4 h-4 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"/></svg>
+                            </div>
+                            <div>
+                                <p class="text-sm font-semibold text-gray-900">Email us directly</p>
+                                <p class="text-sm text-gray-600">luke.david.reimer@gmail.com</p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="bg-white rounded-2xl border border-gray-200 shadow-sm p-8">
+                    <h3 class="text-lg font-bold text-gray-900 mb-4">Common topics</h3>
+                    <div class="space-y-3">
+                        <a href="/request-account" class="flex items-center gap-3 p-3 rounded-xl hover:bg-gray-50 transition-colors group">
+                            <div class="w-8 h-8 bg-purple-100 rounded-lg flex items-center justify-center flex-shrink-0">
+                                <svg class="w-4 h-4 text-purple-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M18 9v3m0 0v3m0-3h3m-3 0h-3m-2-5a4 4 0 11-8 0 4 4 0 018 0zM3 20a6 6 0 0112 0v1H3v-1z"/></svg>
+                            </div>
+                            <div>
+                                <p class="text-sm font-semibold text-gray-900 group-hover:text-brand-700">Want to try Templo?</p>
+                                <p class="text-xs text-gray-500">Request an account</p>
+                            </div>
+                        </a>
+                        <a href="/pricing" class="flex items-center gap-3 p-3 rounded-xl hover:bg-gray-50 transition-colors group">
+                            <div class="w-8 h-8 bg-amber-100 rounded-lg flex items-center justify-center flex-shrink-0">
+                                <svg class="w-4 h-4 text-amber-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+                            </div>
+                            <div>
+                                <p class="text-sm font-semibold text-gray-900 group-hover:text-brand-700">Questions about pricing?</p>
+                                <p class="text-xs text-gray-500">View our plans</p>
+                            </div>
+                        </a>
+                        <a href="/how-it-works" class="flex items-center gap-3 p-3 rounded-xl hover:bg-gray-50 transition-colors group">
+                            <div class="w-8 h-8 bg-blue-100 rounded-lg flex items-center justify-center flex-shrink-0">
+                                <svg class="w-4 h-4 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8.228 9c.549-1.165 2.03-2 3.772-2 2.21 0 4 1.343 4 3 0 1.4-1.278 2.575-3.006 2.907-.542.104-.994.54-.994 1.093m0 3h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+                            </div>
+                            <div>
+                                <p class="text-sm font-semibold text-gray-900 group-hover:text-brand-700">Not sure how it works?</p>
+                                <p class="text-xs text-gray-500">See our walkthrough</p>
+                            </div>
+                        </a>
+                    </div>
+                </div>
+
+                <div class="bg-brand-50 rounded-2xl border border-brand-100 p-8">
+                    <h3 class="text-lg font-bold text-brand-900 mb-2">Enterprise?</h3>
+                    <p class="text-sm text-brand-700 leading-relaxed">
+                        Need SSO, custom domains, SLAs, or volume licensing? Select "Enterprise Inquiry" in the form and we'll set up a call.
+                    </p>
+                </div>
+            </div>
+        </div>
+    </div>
+</section>
+
+{% endblock %}

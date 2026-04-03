@@ -1,0 +1,68 @@
+{% extends "marketing_base.html" %}
+
+{% block title %}Request Access — Templo{% endblock %}
+{% block meta_description %}Request access to Templo. Fill out a quick form and get started once approved.{% endblock %}
+
+{% block content %}
+
+<section class="py-12 lg:py-20">
+    <div class="max-w-lg mx-auto px-4 sm:px-6 lg:px-8">
+        <div class="text-center mb-8">
+            <h1 class="text-3xl sm:text-4xl font-extrabold tracking-tight mb-3">Get started with Templo</h1>
+            <p class="text-gray-600">Fill out the form below and you'll get access once approved. Usually within a few hours.</p>
+        </div>
+
+        <div class="bg-white rounded-2xl border border-gray-200 shadow-sm p-8">
+            <form action="/request-account" method="POST" class="space-y-5">
+                <div>
+                    <label for="email" class="block text-sm font-medium text-gray-700 mb-1.5">Email <span class="text-red-500">*</span></label>
+                    <input
+                        type="email"
+                        id="email"
+                        name="email"
+                        required
+                        class="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-brand-500 focus:border-brand-500 transition-colors"
+                        placeholder="you@example.com"
+                    >
+                </div>
+
+                <div>
+                    <label for="name" class="block text-sm font-medium text-gray-700 mb-1.5">Your Name</label>
+                    <input
+                        type="text"
+                        id="name"
+                        name="name"
+                        maxlength="100"
+                        class="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-brand-500 focus:border-brand-500 transition-colors"
+                        placeholder="Jane Smith"
+                    >
+                </div>
+
+                <div>
+                    <label for="reason" class="block text-sm font-medium text-gray-700 mb-1.5">How will you use Templo?</label>
+                    <textarea
+                        id="reason"
+                        name="reason"
+                        rows="3"
+                        maxlength="500"
+                        class="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-brand-500 focus:border-brand-500 transition-colors"
+                        placeholder="Optional — helps us know who you are"
+                    ></textarea>
+                </div>
+
+                <button
+                    type="submit"
+                    class="w-full bg-brand-600 text-white py-3.5 px-4 rounded-xl font-semibold hover:bg-brand-700 transition-all shadow-lg shadow-brand-600/25"
+                >
+                    Submit Request
+                </button>
+            </form>
+
+            <p class="mt-6 text-center text-sm text-gray-500">
+                Already have an account? <a href="/login" class="text-brand-600 hover:text-brand-800 font-medium">Sign in</a>
+            </p>
+        </div>
+    </div>
+</section>
+
+{% endblock %}

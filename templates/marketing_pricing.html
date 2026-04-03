@@ -1,0 +1,276 @@
+{% extends "marketing_base.html" %}
+
+{% block title %}Pricing — Templo{% endblock %}
+{% block meta_description %}Templo is free for personal use. Upgrade to Pro for unlimited polls and premium features. Simple, transparent pricing.{% endblock %}
+
+{% block content %}
+
+<!-- Hero -->
+<section class="hero-gradient pt-12 pb-16 lg:pt-20 lg:pb-24">
+    <div class="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 text-center">
+        <h1 class="text-4xl sm:text-5xl lg:text-6xl font-extrabold tracking-tight leading-[1.1] mb-6">
+            Simple, <span class="gradient-text">honest pricing</span>
+        </h1>
+        <p class="text-lg sm:text-xl text-gray-600 max-w-2xl mx-auto leading-relaxed">
+            Start free. Upgrade when you need more. No surprises, no hidden fees, no annual lock-in.
+        </p>
+    </div>
+</section>
+
+<!-- Pricing Table -->
+<section class="py-20 lg:py-28">
+    <div class="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8">
+        <div class="grid md:grid-cols-3 gap-8 lg:gap-6">
+
+            <!-- Free Tier -->
+            <div class="card-hover bg-white rounded-2xl border border-gray-200 shadow-sm overflow-hidden">
+                <div class="p-8">
+                    <h3 class="text-lg font-bold text-gray-900 mb-1">Free</h3>
+                    <p class="text-sm text-gray-500 mb-6">For individuals and small groups</p>
+                    <div class="flex items-baseline gap-1 mb-6">
+                        <span class="text-5xl font-extrabold text-gray-900">$0</span>
+                        <span class="text-gray-500">/forever</span>
+                    </div>
+                    <a href="/request-account" class="block w-full text-center py-3 px-4 rounded-xl border-2 border-gray-200 text-gray-700 font-semibold hover:border-brand-300 hover:text-brand-700 transition-all">
+                        Get Started
+                    </a>
+                </div>
+                <div class="border-t border-gray-100 p-8 bg-gray-50">
+                    <p class="text-sm font-semibold text-gray-900 mb-4">Includes:</p>
+                    <ul class="space-y-3">
+                        {% for feature in ['1 active poll at a time', '15 dates per poll', 'Unlimited participants', 'Yes / No / Maybe voting', 'Real-time results', 'Email invitations', 'Profile customization'] %}
+                        <li class="flex items-start gap-3 text-sm text-gray-700">
+                            <svg class="w-4 h-4 text-green-500 flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg>
+                            {{ feature }}
+                        </li>
+                        {% endfor %}
+                    </ul>
+                </div>
+            </div>
+
+            <!-- Pro Tier (Featured) -->
+            <div class="card-hover bg-white rounded-2xl border-2 border-brand-600 shadow-xl overflow-hidden relative">
+                <div class="absolute top-0 left-0 right-0 bg-brand-600 text-center py-1.5">
+                    <span class="text-xs font-bold text-white uppercase tracking-wide">Most Popular</span>
+                </div>
+                <div class="p-8 pt-12">
+                    <h3 class="text-lg font-bold text-gray-900 mb-1">Pro</h3>
+                    <p class="text-sm text-gray-500 mb-6">For power users and teams</p>
+                    <div class="flex items-baseline gap-1 mb-6">
+                        <span class="text-5xl font-extrabold text-gray-900">$8</span>
+                        <span class="text-gray-500">/month</span>
+                    </div>
+                    <a href="/request-account" class="block w-full text-center py-3 px-4 rounded-xl bg-brand-600 text-white font-semibold hover:bg-brand-700 transition-all shadow-lg shadow-brand-600/25">
+                        Start Free Trial
+                    </a>
+                </div>
+                <div class="border-t border-brand-100 p-8 bg-brand-50/30">
+                    <p class="text-sm font-semibold text-gray-900 mb-4">Everything in Free, plus:</p>
+                    <ul class="space-y-3">
+                        {% for feature in ['Unlimited active polls', 'Unlimited dates per poll', 'Priority email support', 'Custom branding (coming soon)', 'Export results (coming soon)', 'Calendar integrations (coming soon)', 'Early access to new features'] %}
+                        <li class="flex items-start gap-3 text-sm text-gray-700">
+                            <svg class="w-4 h-4 text-brand-600 flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg>
+                            {{ feature }}
+                        </li>
+                        {% endfor %}
+                    </ul>
+                </div>
+            </div>
+
+            <!-- Enterprise -->
+            <div class="card-hover bg-white rounded-2xl border border-gray-200 shadow-sm overflow-hidden">
+                <div class="p-8">
+                    <h3 class="text-lg font-bold text-gray-900 mb-1">Enterprise</h3>
+                    <p class="text-sm text-gray-500 mb-6">For organizations with custom needs</p>
+                    <div class="flex items-baseline gap-1 mb-6">
+                        <span class="text-3xl font-extrabold text-gray-900">Let's talk</span>
+                    </div>
+                    <a href="/contact" class="block w-full text-center py-3 px-4 rounded-xl border-2 border-gray-200 text-gray-700 font-semibold hover:border-brand-300 hover:text-brand-700 transition-all">
+                        Contact Us
+                    </a>
+                </div>
+                <div class="border-t border-gray-100 p-8 bg-gray-50">
+                    <p class="text-sm font-semibold text-gray-900 mb-4">Everything in Pro, plus:</p>
+                    <ul class="space-y-3">
+                        {% for feature in ['Dedicated account manager', 'SSO / SAML integration', 'Custom domain', 'SLA & uptime guarantees', 'Team management & RBAC', 'Audit logs', 'Volume licensing'] %}
+                        <li class="flex items-start gap-3 text-sm text-gray-700">
+                            <svg class="w-4 h-4 text-green-500 flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg>
+                            {{ feature }}
+                        </li>
+                        {% endfor %}
+                    </ul>
+                </div>
+            </div>
+        </div>
+    </div>
+</section>
+
+<!-- Comparison to standalone apps -->
+<section class="py-20 lg:py-28 bg-gray-50">
+    <div class="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8">
+        <div class="text-center mb-16">
+            <h2 class="text-3xl sm:text-4xl font-extrabold tracking-tight mb-4">
+                How Templo compares
+            </h2>
+            <p class="text-lg text-gray-600">The tools you're used to vs. what scheduling should actually cost.</p>
+        </div>
+
+        <div class="bg-white rounded-2xl border border-gray-200 shadow-sm overflow-hidden">
+            <div class="overflow-x-auto">
+                <table class="w-full text-sm">
+                    <thead>
+                        <tr class="border-b border-gray-200">
+                            <th class="text-left py-4 px-6 font-semibold text-gray-900">Feature</th>
+                            <th class="text-center py-4 px-4 font-semibold text-brand-700 bg-brand-50">Templo</th>
+                            <th class="text-center py-4 px-4 text-gray-500">Doodle</th>
+                            <th class="text-center py-4 px-4 text-gray-500">When2meet</th>
+                            <th class="text-center py-4 px-4 text-gray-500">Calendly</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% set rows = [
+                            ('Group date polling', true, true, true, false),
+                            ('No account needed to vote', true, false, true, true),
+                            ('Beautiful, modern UI', true, false, false, true),
+                            ('Free tier available', true, true, true, true),
+                            ('No ads on free tier', true, false, true, true),
+                            ('Yes/No/Maybe voting', true, true, false, false),
+                            ('Mobile-friendly', true, true, false, true),
+                            ('Privacy-first (no tracking)', true, false, false, false),
+                            ('Admin controls & RBAC', true, false, false, true),
+                            ('Price for power features', '$8/mo', '$14.95/mo', 'N/A', '$12/mo'),
+                        ] %}
+                        {% for row in rows %}
+                        <tr class="border-b border-gray-100 last:border-b-0">
+                            <td class="py-3.5 px-6 text-gray-700">{{ row[0] }}</td>
+                            <td class="py-3.5 px-4 text-center bg-brand-50/50">
+                                {% if row[1] is sameas true %}
+                                <svg class="w-5 h-5 text-green-600 mx-auto" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg>
+                                {% elif row[1] is sameas false %}
+                                <svg class="w-5 h-5 text-gray-300 mx-auto" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
+                                {% else %}
+                                <span class="font-semibold text-brand-700">{{ row[1] }}</span>
+                                {% endif %}
+                            </td>
+                            {% for val in row[2:] %}
+                            <td class="py-3.5 px-4 text-center">
+                                {% if val is sameas true %}
+                                <svg class="w-5 h-5 text-green-600 mx-auto" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg>
+                                {% elif val is sameas false %}
+                                <svg class="w-5 h-5 text-gray-300 mx-auto" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
+                                {% else %}
+                                <span class="text-gray-500">{{ val }}</span>
+                                {% endif %}
+                            </td>
+                            {% endfor %}
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+</section>
+
+<!-- Testimonials that answer pricing objections -->
+<section class="py-20 lg:py-28">
+    <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+        <div class="text-center mb-16">
+            <h2 class="text-3xl sm:text-4xl font-extrabold tracking-tight mb-4">
+                Worth every penny <span class="text-gray-400">(or zero pennies)</span>
+            </h2>
+        </div>
+
+        <div class="grid md:grid-cols-2 gap-8">
+            <div class="bg-white rounded-2xl p-8 border border-gray-100 shadow-sm">
+                <p class="text-gray-700 leading-relaxed mb-6">"I almost didn't try it because I figured I'd hit a paywall immediately. But no &mdash; the free tier is genuinely useful. I ran it free for 3 months before upgrading because I wanted to support the product."</p>
+                <div class="flex items-center gap-3">
+                    <div class="w-10 h-10 bg-brand-100 rounded-full flex items-center justify-center font-bold text-brand-700">D</div>
+                    <div>
+                        <p class="font-semibold text-gray-900 text-sm">David K.</p>
+                        <p class="text-xs text-gray-500">Uses the Free tier for his book club</p>
+                    </div>
+                </div>
+            </div>
+
+            <div class="bg-white rounded-2xl p-8 border border-gray-100 shadow-sm">
+                <p class="text-gray-700 leading-relaxed mb-6">"We were paying $15/month for Doodle Premium and half our team complained about the UX. Switched to Templo Pro and saved money while getting something that actually looks professional."</p>
+                <div class="flex items-center gap-3">
+                    <div class="w-10 h-10 bg-green-100 rounded-full flex items-center justify-center font-bold text-green-700">L</div>
+                    <div>
+                        <p class="font-semibold text-gray-900 text-sm">Lisa P.</p>
+                        <p class="text-xs text-gray-500">Operations Lead, 25-person team</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</section>
+
+<!-- Cost of inaction -->
+<section class="py-20 lg:py-28 bg-gray-50">
+    <div class="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8">
+        <div class="bg-white rounded-2xl border border-gray-200 shadow-sm p-8 lg:p-12">
+            <div class="text-center mb-10">
+                <h2 class="text-3xl sm:text-4xl font-extrabold tracking-tight mb-4">
+                    The cost of <span class="text-red-600">not</span> using Templo
+                </h2>
+                <p class="text-lg text-gray-600">Let's do the math on what "free" email chains actually cost.</p>
+            </div>
+
+            <div class="grid sm:grid-cols-3 gap-6 mb-10">
+                <div class="text-center p-6 bg-red-50 rounded-xl">
+                    <p class="text-4xl font-extrabold text-red-600 mb-2">4.5 hrs</p>
+                    <p class="text-sm text-gray-600">Average time spent scheduling a single group event via email</p>
+                </div>
+                <div class="text-center p-6 bg-red-50 rounded-xl">
+                    <p class="text-4xl font-extrabold text-red-600 mb-2">23%</p>
+                    <p class="text-sm text-gray-600">Of group plans that get abandoned due to scheduling friction</p>
+                </div>
+                <div class="text-center p-6 bg-red-50 rounded-xl">
+                    <p class="text-4xl font-extrabold text-red-600 mb-2">$340</p>
+                    <p class="text-sm text-gray-600">Lost productivity per employee per year on scheduling overhead</p>
+                </div>
+            </div>
+
+            <div class="text-center">
+                <p class="text-gray-600 mb-6">Templo pays for itself with a single event. The free tier costs nothing but saves hours.</p>
+                <a href="/request-account" class="inline-flex items-center px-6 py-3 bg-brand-600 text-white font-semibold rounded-xl hover:bg-brand-700 transition-all shadow-lg shadow-brand-600/25">
+                    Start saving time today
+                    <svg class="ml-2 w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 7l5 5m0 0l-5 5m5-5H6"/></svg>
+                </a>
+            </div>
+        </div>
+    </div>
+</section>
+
+<!-- FAQ -->
+<section class="py-20 lg:py-28">
+    <div class="max-w-3xl mx-auto px-4 sm:px-6 lg:px-8">
+        <div class="text-center mb-16">
+            <h2 class="text-3xl sm:text-4xl font-extrabold tracking-tight mb-4">Frequently asked questions</h2>
+        </div>
+
+        <div class="space-y-4">
+            {% set faqs = [
+                ("Is the free tier actually free forever?", "Yes. No trial period, no credit card required, no catch. The free tier gives you 1 active poll with up to 15 dates. That's plenty for most personal use."),
+                ("Can I switch between plans?", "Absolutely. Upgrade or downgrade anytime. If you downgrade, you keep your existing polls — you just can't create new ones beyond the free limit."),
+                ("Do my invitees need to pay?", "Never. Participants never need an account or a paid plan. They just click the link and vote. That's a core principle of Templo."),
+                ("What payment methods do you accept?", "We're rolling out Stripe payments soon. For now, Pro upgrades are handled manually. Contact us and we'll get you set up."),
+                ("Is there a discount for nonprofits or education?", "Yes! Reach out via our contact page and we'll set you up with a discounted or free Pro plan."),
+                ("What happens to my data if I cancel?", "Your data stays until you explicitly delete it. We don't hold your data hostage or delete it on cancellation.")
+            ] %}
+            {% for question, answer in faqs %}
+            <details class="group bg-white rounded-xl border border-gray-200 shadow-sm">
+                <summary class="flex items-center justify-between cursor-pointer p-6 text-gray-900 font-semibold">
+                    {{ question }}
+                    <svg class="w-5 h-5 text-gray-400 group-open:rotate-180 transition-transform flex-shrink-0 ml-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/></svg>
+                </summary>
+                <div class="px-6 pb-6 text-gray-600 leading-relaxed">{{ answer }}</div>
+            </details>
+            {% endfor %}
+        </div>
+    </div>
+</section>
+
+{% endblock %}

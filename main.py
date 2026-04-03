@@ -132,7 +132,23 @@ def get_user_profile(email):
 
 
 def is_allowed_email(email):
-    return normalize_email(email) in [normalize_email(e) for e in ALLOWED_EMAILS]
+    normalized = normalize_email(email)
+    # Admin emails are always allowed
+    if normalized in ADMIN_EMAILS:
+        return True
+    # Legacy allowlist
+    if normalized in [normalize_email(e) for e in ALLOWED_EMAILS]:
+        return True
+    # Check if user exists in database (approved via account request flow)
+    try:
+        conn = get_db()
+        cursor = conn.cursor()
+        cursor.execute("SELECT id FROM users WHERE LOWER(email) = %s", (normalized,))
+        user_exists = cursor.fetchone() is not None
+        conn.close()
+        return user_exists
+    except:
+        return False
 
 
 def generate_short_id(length=5):
@@ -197,6 +213,65 @@ def send_verification_email(to_email, token, request_url_root):
     except Exception as e:
         print(f"ERROR: Failed to send email: {e}")
         return False, str(e)
+
+
+def send_admin_request_notification(requester_email, requester_name, reason, approval_token, request_url_root):
+    if not RESEND_API_KEY:
+        print("ERROR: Resend not configured - missing RESEND_API_KEY")
+        return False
+
+    approve_url = request_url_root.rstrip("/") + url_for("approve_request_via_email", token=approval_token)
+    admin_url = request_url_root.rstrip("/") + url_for("admin_panel")
+    display_name = requester_name or requester_email.split("@")[0]
+    reason_html = f"<p><strong>Reason:</strong> {reason}</p>" if reason else ""
+
+    for admin_email in ADMIN_EMAILS:
+        email_payload = {
+            "from": RESEND_FROM_EMAIL,
+            "to": [admin_email],
+            "subject": f"New account request from {display_name}",
+            "html": f"""
+            <h2>New Account Request</h2>
+            <p><strong>Email:</strong> {requester_email}</p>
+            <p><strong>Name:</strong> {display_name}</p>
+            {reason_html}
+            <p style="margin-top: 20px;">
+                <a href="{approve_url}" style="background-color: #16a34a; color: white; padding: 12px 24px; text-decoration: none; border-radius: 8px; display: inline-block; font-weight: bold;">Approve Request</a>
+            </p>
+            <p style="margin-top: 12px;">Or manage all requests in the <a href="{admin_url}">Admin Panel</a>.</p>
+            <p style="color: #6b7280; font-size: 14px; margin-top: 20px;">Templo: templobooker.com</p>
+            """
+        }
+
+        try:
+            response = requests.post(
+                "https://api.resend.com/emails",
+                headers={
+                    "Authorization": f"Bearer {RESEND_API_KEY}",
+                    "Content-Type": "application/json"
+                },
+                json=email_payload,
+                timeout=10
+            )
+
+            if response.status_code == 403 and "domain is not verified" in response.text:
+                email_payload["from"] = "onboarding@resend.dev"
+                response = requests.post(
+                    "https://api.resend.com/emails",
+                    headers={
+                        "Authorization": f"Bearer {RESEND_API_KEY}",
+                        "Content-Type": "application/json"
+                    },
+                    json=email_payload,
+                    timeout=10
+                )
+
+            if response.status_code not in (200, 201):
+                print(f"ERROR: Failed to notify admin {admin_email}: {response.text[:300]}")
+        except Exception as e:
+            print(f"ERROR: Failed to notify admin {admin_email}: {e}")
+
+    return True
 
 
 def get_current_user():
@@ -355,7 +430,21 @@ def init_db():
             expires_at TIMESTAMP NOT NULL
         )
     ''')
-    
+
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS account_requests (
+            id SERIAL PRIMARY KEY,
+            email TEXT NOT NULL,
+            name TEXT,
+            reason TEXT,
+            status TEXT DEFAULT 'pending' CHECK(status IN ('pending', 'approved', 'rejected')),
+            approval_token TEXT UNIQUE,
+            reviewed_by TEXT,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            reviewed_at TIMESTAMP
+        )
+    ''')
+
     conn.commit()
     conn.close()
 
@@ -366,17 +455,28 @@ init_db()
 @app.context_processor
 def utility_processor():
     current_user = get_current_user()
+    pending_request_count = 0
+    if is_admin_user(current_user):
+        try:
+            conn = get_db()
+            cursor = conn.cursor()
+            cursor.execute("SELECT COUNT(*) FROM account_requests WHERE status = 'pending'")
+            pending_request_count = cursor.fetchone()[0]
+            conn.close()
+        except:
+            pass
     return dict(
         get_name=get_name,
         current_user=current_user,
-        is_admin=is_admin_user(current_user)
+        is_admin=is_admin_user(current_user),
+        pending_request_count=pending_request_count
     )
 
 
 @app.route("/")
 def home():
     if not session.get("user_email"):
-        return redirect(url_for("login"))
+        return render_template("marketing_home.html")
     return redirect(url_for("dashboard"))
 
 
@@ -391,8 +491,8 @@ def login():
             return redirect(url_for("login"))
         
         if not is_allowed_email(email):
-            flash("Sorry, this email is not authorized to use this app", "error")
-            return redirect(url_for("login"))
+            flash("No account found for this email. Please request access first.", "error")
+            return redirect(url_for("request_account"))
         
         conn = get_db()
         cursor = conn.cursor(cursor_factory=RealDictCursor)
@@ -1014,12 +1114,19 @@ def admin_panel():
         '''
     )
     polls = cursor.fetchall()
+
+    cursor.execute(
+        "SELECT * FROM account_requests ORDER BY CASE status WHEN 'pending' THEN 0 WHEN 'approved' THEN 1 ELSE 2 END, created_at DESC"
+    )
+    account_requests = cursor.fetchall()
     conn.close()
 
     for poll in polls:
         poll["invite_count"] = len(parse_invite_emails(poll.get("invite_emails")))
 
-    return render_template("admin.html", users=users, polls=polls)
+    pending_count = sum(1 for r in account_requests if r["status"] == "pending")
+
+    return render_template("admin.html", users=users, polls=polls, account_requests=account_requests, pending_count=pending_count)
 
 
 @app.route("/admin/users/<path:target_email>/update", methods=["POST"])
@@ -1098,6 +1205,185 @@ def admin_delete_poll(poll_id):
     return redirect(url_for("admin_panel"))
 
 
+@app.route("/request-account", methods=["GET", "POST"])
+def request_account():
+    if session.get("user_email"):
+        return redirect(url_for("dashboard"))
+
+    if request.method == "POST":
+        email = normalize_email(request.form.get("email", ""))
+        name = request.form.get("name", "").strip()
+        reason = request.form.get("reason", "").strip()
+
+        if not email or "@" not in email:
+            flash("Please enter a valid email address.", "error")
+            return redirect(url_for("request_account"))
+
+        if len(name) > 100:
+            name = name[:100]
+        if len(reason) > 500:
+            reason = reason[:500]
+
+        conn = get_db()
+        cursor = conn.cursor(cursor_factory=RealDictCursor)
+
+        # Check if already an approved user
+        cursor.execute("SELECT id FROM users WHERE LOWER(email) = %s AND is_verified = TRUE", (email,))
+        if cursor.fetchone():
+            conn.close()
+            flash("An account with this email already exists. Please log in.", "success")
+            return redirect(url_for("login"))
+
+        # Check if there's already a pending request
+        cursor.execute(
+            "SELECT id FROM account_requests WHERE LOWER(email) = %s AND status = 'pending'",
+            (email,)
+        )
+        if cursor.fetchone():
+            conn.close()
+            flash("You already have a pending request. You'll receive an email once it's reviewed.", "success")
+            return redirect(url_for("request_account"))
+
+        approval_token = generate_token()
+        cursor.execute(
+            "INSERT INTO account_requests (email, name, reason, approval_token) VALUES (%s, %s, %s, %s)",
+            (email, name if name else None, reason if reason else None, approval_token)
+        )
+        conn.commit()
+        conn.close()
+
+        send_admin_request_notification(email, name, reason, approval_token, request.url_root)
+
+        flash("Your request has been submitted! You'll receive an email once an admin approves your account.", "success")
+        return redirect(url_for("request_account"))
+
+    return render_template("request_account.html")
+
+
+@app.route("/approve-request/<token>")
+def approve_request_via_email(token):
+    conn = get_db()
+    cursor = conn.cursor(cursor_factory=RealDictCursor)
+
+    cursor.execute(
+        "SELECT * FROM account_requests WHERE approval_token = %s AND status = 'pending'",
+        (token,)
+    )
+    req = cursor.fetchone()
+
+    if not req:
+        conn.close()
+        flash("This request has already been processed or the link is invalid.", "error")
+        return redirect(url_for("login"))
+
+    email = normalize_email(req["email"])
+
+    # Mark request as approved
+    cursor.execute(
+        "UPDATE account_requests SET status = 'approved', reviewed_at = NOW(), reviewed_by = 'email' WHERE id = %s",
+        (req["id"],)
+    )
+
+    # Create user account if it doesn't exist
+    cursor.execute("SELECT id FROM users WHERE LOWER(email) = %s", (email,))
+    if not cursor.fetchone():
+        cursor.execute(
+            "INSERT INTO users (email, display_name, role, tier) VALUES (%s, %s, %s, %s)",
+            (email, req.get("name"), default_role_for_email(email), default_tier_for_email(email))
+        )
+
+    # Generate verification token and send setup email
+    verify_token = generate_token()
+    cursor.execute("DELETE FROM verification_tokens WHERE email = %s", (email,))
+    cursor.execute(
+        "INSERT INTO verification_tokens (email, token, expires_at) VALUES (%s, %s, NOW() + INTERVAL '24 hours')",
+        (email, verify_token)
+    )
+    conn.commit()
+    conn.close()
+
+    send_verification_email(email, verify_token, request.url_root)
+
+    flash(f"Account request for {email} has been approved. They've been sent a verification email.", "success")
+    # If admin is logged in, go to admin panel; otherwise go to login
+    if session.get("user_email"):
+        return redirect(url_for("admin_panel"))
+    return redirect(url_for("login"))
+
+
+@app.route("/admin/requests/<int:request_id>/approve", methods=["POST"])
+def admin_approve_request(request_id):
+    current_user = get_current_user()
+    if not is_admin_user(current_user):
+        flash("Admin access required.", "error")
+        return redirect(url_for("dashboard"))
+
+    conn = get_db()
+    cursor = conn.cursor(cursor_factory=RealDictCursor)
+
+    cursor.execute("SELECT * FROM account_requests WHERE id = %s AND status = 'pending'", (request_id,))
+    req = cursor.fetchone()
+
+    if not req:
+        conn.close()
+        flash("Request not found or already processed.", "error")
+        return redirect(url_for("admin_panel"))
+
+    email = normalize_email(req["email"])
+
+    cursor.execute(
+        "UPDATE account_requests SET status = 'approved', reviewed_at = NOW(), reviewed_by = %s WHERE id = %s",
+        (current_user["email"], request_id)
+    )
+
+    # Create user account if it doesn't exist
+    cursor.execute("SELECT id FROM users WHERE LOWER(email) = %s", (email,))
+    if not cursor.fetchone():
+        cursor.execute(
+            "INSERT INTO users (email, display_name, role, tier) VALUES (%s, %s, %s, %s)",
+            (email, req.get("name"), default_role_for_email(email), default_tier_for_email(email))
+        )
+
+    verify_token = generate_token()
+    cursor.execute("DELETE FROM verification_tokens WHERE email = %s", (email,))
+    cursor.execute(
+        "INSERT INTO verification_tokens (email, token, expires_at) VALUES (%s, %s, NOW() + INTERVAL '24 hours')",
+        (email, verify_token)
+    )
+    conn.commit()
+    conn.close()
+
+    send_verification_email(email, verify_token, request.url_root)
+
+    flash(f"Approved! Verification email sent to {email}.", "success")
+    return redirect(url_for("admin_panel"))
+
+
+@app.route("/admin/requests/<int:request_id>/reject", methods=["POST"])
+def admin_reject_request(request_id):
+    current_user = get_current_user()
+    if not is_admin_user(current_user):
+        flash("Admin access required.", "error")
+        return redirect(url_for("dashboard"))
+
+    conn = get_db()
+    cursor = conn.cursor(cursor_factory=RealDictCursor)
+
+    cursor.execute("SELECT id FROM account_requests WHERE id = %s AND status = 'pending'", (request_id,))
+    if not cursor.fetchone():
+        conn.close()
+        flash("Request not found or already processed.", "error")
+        return redirect(url_for("admin_panel"))
+
+    cursor.execute(
+        "UPDATE account_requests SET status = 'rejected', reviewed_at = NOW(), reviewed_by = %s WHERE id = %s",
+        (current_user["email"], request_id)
+    )
+    conn.commit()
+    conn.close()
+
+    flash("Request rejected.", "success")
+    return redirect(url_for("admin_panel"))
 
 
 @app.route("/profile", methods=["GET", "POST"])
@@ -1122,9 +1408,9 @@ def profile():
             flash("Email is required", "error")
             return redirect(url_for("profile"))
 
-        if not is_allowed_email(new_email):
+        if not is_allowed_email(new_email) and new_email != current_email:
             conn.close()
-            flash("Sorry, this email is not authorized to use this app", "error")
+            flash("That email is not associated with an approved account.", "error")
             return redirect(url_for("profile"))
 
         if new_email != current_email:
@@ -1264,6 +1550,89 @@ def logout():
     session.pop("poll_creator_email", None)
     session.pop("pending_verification_email", None)
     return redirect(url_for("login"))
+
+
+# ── Marketing pages ──────────────────────────────────────────
+
+@app.route("/how-it-works")
+def marketing_how_it_works():
+    return render_template("marketing_how_it_works.html")
+
+
+@app.route("/who-its-for")
+def marketing_who_its_for():
+    return render_template("marketing_who_its_for.html")
+
+
+@app.route("/pricing")
+def marketing_pricing():
+    return render_template("marketing_pricing.html")
+
+
+@app.route("/why-us")
+def marketing_why_us():
+    return render_template("marketing_why_us.html")
+
+
+@app.route("/contact", methods=["GET", "POST"])
+def marketing_contact():
+    if request.method == "POST":
+        name = request.form.get("name", "").strip()
+        email = normalize_email(request.form.get("email", ""))
+        subject = request.form.get("subject", "general").strip()
+        message = request.form.get("message", "").strip()
+
+        if not name or not email or not message:
+            flash("Please fill in all required fields.", "error")
+            return redirect(url_for("marketing_contact"))
+
+        # Send to admin(s) via Resend
+        if RESEND_API_KEY:
+            for admin_email in ADMIN_EMAILS:
+                email_payload = {
+                    "from": RESEND_FROM_EMAIL,
+                    "to": [admin_email],
+                    "reply_to": email,
+                    "subject": f"[Templo Contact] {subject} — from {name}",
+                    "html": f"""
+                    <h2>New Contact Form Submission</h2>
+                    <p><strong>Name:</strong> {name}</p>
+                    <p><strong>Email:</strong> {email}</p>
+                    <p><strong>Subject:</strong> {subject}</p>
+                    <hr>
+                    <p>{message.replace(chr(10), '<br>')}</p>
+                    <hr>
+                    <p style="color: #6b7280; font-size: 14px;">Sent from the Templo contact form at templobooker.com</p>
+                    """
+                }
+                try:
+                    resp = requests.post(
+                        "https://api.resend.com/emails",
+                        headers={
+                            "Authorization": f"Bearer {RESEND_API_KEY}",
+                            "Content-Type": "application/json"
+                        },
+                        json=email_payload,
+                        timeout=10
+                    )
+                    if resp.status_code == 403 and "domain is not verified" in resp.text:
+                        email_payload["from"] = "onboarding@resend.dev"
+                        requests.post(
+                            "https://api.resend.com/emails",
+                            headers={
+                                "Authorization": f"Bearer {RESEND_API_KEY}",
+                                "Content-Type": "application/json"
+                            },
+                            json=email_payload,
+                            timeout=10
+                        )
+                except Exception as e:
+                    print(f"ERROR: Failed to send contact form email: {e}")
+
+        flash("Message sent! We'll get back to you soon.", "success")
+        return redirect(url_for("marketing_contact"))
+
+    return render_template("marketing_contact.html")
 
 
 if __name__ == "__main__":

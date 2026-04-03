@@ -9,6 +9,87 @@
         <p class="text-sm text-gray-500 mt-1">Manage users, roles, tiers, and all polls.</p>
     </div>
 
+    {% if pending_count > 0 %}
+    <section class="bg-white rounded-xl shadow p-6 border-l-4 border-amber-400">
+        <h2 class="text-lg font-semibold text-gray-900 mb-4">
+            Pending Account Requests
+            <span class="ml-2 px-2 py-1 rounded-full text-xs font-semibold bg-amber-100 text-amber-700">{{ pending_count }}</span>
+        </h2>
+        <div class="overflow-x-auto">
+            <table class="min-w-full text-sm">
+                <thead>
+                    <tr class="text-left text-gray-500 border-b">
+                        <th class="py-2 pr-4">Email</th>
+                        <th class="py-2 pr-4">Name</th>
+                        <th class="py-2 pr-4">Reason</th>
+                        <th class="py-2 pr-4">Requested</th>
+                        <th class="py-2">Action</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for req in account_requests if req.status == 'pending' %}
+                    <tr class="border-b last:border-b-0">
+                        <td class="py-3 pr-4 font-medium text-gray-900">{{ req.email }}</td>
+                        <td class="py-3 pr-4">{{ req.name or '—' }}</td>
+                        <td class="py-3 pr-4 text-gray-600 max-w-xs truncate">{{ req.reason or '—' }}</td>
+                        <td class="py-3 pr-4 text-gray-500">{{ req.created_at.strftime('%b %d, %Y') if req.created_at else '—' }}</td>
+                        <td class="py-3">
+                            <div class="flex gap-2">
+                                <form action="/admin/requests/{{ req.id }}/approve" method="POST">
+                                    <button type="submit" class="px-3 py-1.5 rounded bg-green-600 text-white hover:bg-green-700 font-medium">Approve</button>
+                                </form>
+                                <form action="/admin/requests/{{ req.id }}/reject" method="POST" onsubmit="return confirm('Reject this request?');">
+                                    <button type="submit" class="px-3 py-1.5 rounded bg-red-100 text-red-700 hover:bg-red-200">Reject</button>
+                                </form>
+                            </div>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </section>
+    {% endif %}
+
+    {% set processed_requests = account_requests | selectattr('status', 'ne', 'pending') | list %}
+    {% if processed_requests %}
+    <section class="bg-white rounded-xl shadow p-6">
+        <details>
+            <summary class="text-lg font-semibold text-gray-900 cursor-pointer">Request History ({{ processed_requests | length }})</summary>
+            <div class="overflow-x-auto mt-4">
+                <table class="min-w-full text-sm">
+                    <thead>
+                        <tr class="text-left text-gray-500 border-b">
+                            <th class="py-2 pr-4">Email</th>
+                            <th class="py-2 pr-4">Name</th>
+                            <th class="py-2 pr-4">Status</th>
+                            <th class="py-2 pr-4">Reviewed By</th>
+                            <th class="py-2 pr-4">Reviewed</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for req in processed_requests %}
+                        <tr class="border-b last:border-b-0">
+                            <td class="py-3 pr-4 text-gray-900">{{ req.email }}</td>
+                            <td class="py-3 pr-4">{{ req.name or '—' }}</td>
+                            <td class="py-3 pr-4">
+                                {% if req.status == 'approved' %}
+                                <span class="px-2 py-1 rounded-full text-xs bg-green-100 text-green-700">Approved</span>
+                                {% else %}
+                                <span class="px-2 py-1 rounded-full text-xs bg-red-100 text-red-700">Rejected</span>
+                                {% endif %}
+                            </td>
+                            <td class="py-3 pr-4 text-gray-500">{{ req.reviewed_by or '—' }}</td>
+                            <td class="py-3 pr-4 text-gray-500">{{ req.reviewed_at.strftime('%b %d, %Y') if req.reviewed_at else '—' }}</td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </details>
+    </section>
+    {% endif %}
+
     <section class="bg-white rounded-xl shadow p-6">
         <h2 class="text-lg font-semibold text-gray-900 mb-4">User Management</h2>
         <div class="overflow-x-auto">

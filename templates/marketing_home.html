@@ -1,0 +1,322 @@
+{% extends "marketing_base.html" %}
+
+{% block title %}Templo — Group Scheduling, Simplified{% endblock %}
+
+{% block content %}
+
+<!-- Hero -->
+<section class="hero-gradient pt-12 pb-20 lg:pt-20 lg:pb-32 overflow-hidden">
+    <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+        <div class="max-w-4xl mx-auto text-center">
+            <div class="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-brand-100 text-brand-700 text-xs font-semibold mb-6 tracking-wide uppercase">
+                <span class="w-1.5 h-1.5 rounded-full bg-brand-500"></span>
+                Now in open access
+            </div>
+            <h1 class="text-4xl sm:text-5xl lg:text-7xl font-extrabold tracking-tight leading-[1.1] mb-6">
+                Stop guessing.<br>
+                <span class="gradient-text">Start scheduling.</span>
+            </h1>
+            <p class="text-lg sm:text-xl text-gray-600 max-w-2xl mx-auto mb-10 leading-relaxed">
+                Templo makes it effortless to find the perfect date for any group event. Create a poll, invite your people, and let everyone vote. Done in seconds, not email chains.
+            </p>
+            <div class="flex flex-col sm:flex-row items-center justify-center gap-4">
+                <a href="/request-account" class="w-full sm:w-auto inline-flex items-center justify-center px-8 py-4 bg-brand-600 text-white font-semibold rounded-xl hover:bg-brand-700 transition-all shadow-lg shadow-brand-600/25 text-lg">
+                    Get Started Free
+                    <svg class="ml-2 w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 7l5 5m0 0l-5 5m5-5H6"/></svg>
+                </a>
+                <a href="/how-it-works" class="w-full sm:w-auto inline-flex items-center justify-center px-8 py-4 bg-white text-gray-700 font-semibold rounded-xl hover:bg-gray-50 transition-all border border-gray-200 text-lg">
+                    See How It Works
+                </a>
+            </div>
+        </div>
+
+        <!-- Hero Visual -->
+        <div class="mt-16 lg:mt-24 max-w-5xl mx-auto">
+            <div class="relative">
+                <!-- Mock app screenshot -->
+                <div class="bg-white rounded-2xl shadow-2xl shadow-brand-900/10 border border-gray-200 overflow-hidden">
+                    <div class="bg-gray-50 border-b border-gray-200 px-6 py-3 flex items-center gap-2">
+                        <div class="w-3 h-3 rounded-full bg-red-400"></div>
+                        <div class="w-3 h-3 rounded-full bg-yellow-400"></div>
+                        <div class="w-3 h-3 rounded-full bg-green-400"></div>
+                        <div class="ml-4 flex-1 bg-gray-200 rounded-md h-6 max-w-xs"></div>
+                    </div>
+                    <div class="p-8 lg:p-12">
+                        <div class="flex items-center gap-3 mb-6">
+                            <div class="w-10 h-10 bg-brand-100 rounded-lg flex items-center justify-center">
+                                <svg class="w-6 h-6 text-brand-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"/></svg>
+                            </div>
+                            <div>
+                                <h3 class="font-bold text-gray-900">Team Offsite 2026</h3>
+                                <p class="text-sm text-gray-500">4 people invited &middot; 6 dates proposed</p>
+                            </div>
+                        </div>
+                        <div class="grid grid-cols-3 sm:grid-cols-6 gap-3">
+                            {% for day in ['Mar 15', 'Mar 16', 'Mar 22', 'Mar 23', 'Apr 5', 'Apr 6'] %}
+                            <div class="relative bg-gray-50 rounded-xl p-3 text-center border {% if loop.index in [3, 4] %}border-green-300 bg-green-50{% else %}border-gray-200{% endif %}">
+                                <p class="text-xs text-gray-500 mb-1">Sat</p>
+                                <p class="font-bold text-gray-900 text-sm">{{ day }}</p>
+                                <div class="flex justify-center gap-1 mt-2">
+                                    {% if loop.index in [3, 4] %}
+                                    <div class="w-2 h-2 rounded-full bg-green-500"></div>
+                                    <div class="w-2 h-2 rounded-full bg-green-500"></div>
+                                    <div class="w-2 h-2 rounded-full bg-green-500"></div>
+                                    <div class="w-2 h-2 rounded-full bg-green-500"></div>
+                                    {% elif loop.index == 1 %}
+                                    <div class="w-2 h-2 rounded-full bg-green-500"></div>
+                                    <div class="w-2 h-2 rounded-full bg-green-500"></div>
+                                    <div class="w-2 h-2 rounded-full bg-yellow-400"></div>
+                                    <div class="w-2 h-2 rounded-full bg-red-400"></div>
+                                    {% else %}
+                                    <div class="w-2 h-2 rounded-full bg-green-500"></div>
+                                    <div class="w-2 h-2 rounded-full bg-yellow-400"></div>
+                                    <div class="w-2 h-2 rounded-full bg-red-400"></div>
+                                    <div class="w-2 h-2 rounded-full bg-gray-300"></div>
+                                    {% endif %}
+                                </div>
+                            </div>
+                            {% endfor %}
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Floating elements -->
+                <div class="absolute -top-4 -right-4 lg:-right-8 bg-white rounded-xl shadow-xl border border-gray-100 p-4 float-animation hidden lg:block">
+                    <div class="flex items-center gap-2">
+                        <div class="w-8 h-8 bg-green-100 rounded-full flex items-center justify-center">
+                            <svg class="w-4 h-4 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg>
+                        </div>
+                        <div>
+                            <p class="text-sm font-semibold text-gray-900">Sarah voted</p>
+                            <p class="text-xs text-gray-500">Just now</p>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="absolute -bottom-4 -left-4 lg:-left-8 bg-white rounded-xl shadow-xl border border-gray-100 p-4 float-animation-delayed hidden lg:block">
+                    <div class="flex items-center gap-2">
+                        <div class="w-8 h-8 bg-brand-100 rounded-full flex items-center justify-center">
+                            <svg class="w-4 h-4 text-brand-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z"/></svg>
+                        </div>
+                        <div>
+                            <p class="text-sm font-semibold text-gray-900">4/4 responded</p>
+                            <p class="text-xs text-gray-500">Ready to book!</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</section>
+
+<!-- Social Proof Logos -->
+<section class="py-12 lg:py-16 border-b border-gray-100">
+    <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+        <p class="text-center text-sm font-medium text-gray-400 uppercase tracking-widest mb-8">Trusted by teams who value their time</p>
+        <div class="flex flex-wrap justify-center items-center gap-8 lg:gap-16 opacity-40">
+            <div class="text-2xl font-bold text-gray-900 tracking-tight">StartupCo</div>
+            <div class="text-2xl font-bold text-gray-900 tracking-tight">Basecamp</div>
+            <div class="text-2xl font-bold text-gray-900 tracking-tight">Remote.io</div>
+            <div class="text-2xl font-bold text-gray-900 tracking-tight">TeamSync</div>
+            <div class="text-2xl font-bold text-gray-900 tracking-tight">FlowHQ</div>
+        </div>
+    </div>
+</section>
+
+<!-- 3 Value Props: Pros Without Cons -->
+<section class="py-20 lg:py-28">
+    <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+        <div class="text-center mb-16">
+            <h2 class="text-3xl sm:text-4xl lg:text-5xl font-extrabold tracking-tight mb-4">
+                All the power. <span class="gradient-text">None of the pain.</span>
+            </h2>
+            <p class="text-lg text-gray-600 max-w-2xl mx-auto">
+                Other tools are bloated, expensive, or require everyone to create an account. Templo is different.
+            </p>
+        </div>
+
+        <div class="grid md:grid-cols-3 gap-8 lg:gap-12">
+            <!-- Value Prop 1 -->
+            <div class="card-hover bg-white rounded-2xl p-8 border border-gray-100 shadow-sm">
+                <div class="w-14 h-14 bg-green-100 rounded-2xl flex items-center justify-center mb-6">
+                    <svg class="w-7 h-7 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"/></svg>
+                </div>
+                <h3 class="text-xl font-bold text-gray-900 mb-3">Instant Setup, Zero Friction</h3>
+                <p class="text-gray-600 leading-relaxed mb-4">Create a poll in 30 seconds. No onboarding wizards, no tutorials, no learning curve. Just name it, pick dates, and share.</p>
+                <div class="pt-4 border-t border-gray-100">
+                    <div class="flex items-center gap-2 text-sm text-green-700">
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg>
+                        No complex setup
+                    </div>
+                    <div class="flex items-center gap-2 text-sm text-green-700 mt-1">
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg>
+                        No credit card required
+                    </div>
+                </div>
+            </div>
+
+            <!-- Value Prop 2 -->
+            <div class="card-hover bg-white rounded-2xl p-8 border border-gray-100 shadow-sm">
+                <div class="w-14 h-14 bg-brand-100 rounded-2xl flex items-center justify-center mb-6">
+                    <svg class="w-7 h-7 text-brand-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z"/></svg>
+                </div>
+                <h3 class="text-xl font-bold text-gray-900 mb-3">Everyone Has a Voice</h3>
+                <p class="text-gray-600 leading-relaxed mb-4">Yes, No, Maybe &mdash; every participant votes on every date. You instantly see where the group overlaps. No one gets left out.</p>
+                <div class="pt-4 border-t border-gray-100">
+                    <div class="flex items-center gap-2 text-sm text-green-700">
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg>
+                        Visual vote breakdown
+                    </div>
+                    <div class="flex items-center gap-2 text-sm text-green-700 mt-1">
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg>
+                        Real-time results
+                    </div>
+                </div>
+            </div>
+
+            <!-- Value Prop 3 -->
+            <div class="card-hover bg-white rounded-2xl p-8 border border-gray-100 shadow-sm">
+                <div class="w-14 h-14 bg-purple-100 rounded-2xl flex items-center justify-center mb-6">
+                    <svg class="w-7 h-7 text-purple-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z"/></svg>
+                </div>
+                <h3 class="text-xl font-bold text-gray-900 mb-3">Your Data, Your Control</h3>
+                <p class="text-gray-600 leading-relaxed mb-4">No ads. No data selling. No tracking pixels. Templo exists to solve one problem well &mdash; and respect your privacy doing it.</p>
+                <div class="pt-4 border-t border-gray-100">
+                    <div class="flex items-center gap-2 text-sm text-green-700">
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg>
+                        Privacy-first design
+                    </div>
+                    <div class="flex items-center gap-2 text-sm text-green-700 mt-1">
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg>
+                        Delete your data anytime
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</section>
+
+<!-- How It Works Preview -->
+<section class="py-20 lg:py-28 bg-gray-50">
+    <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+        <div class="text-center mb-16">
+            <h2 class="text-3xl sm:text-4xl lg:text-5xl font-extrabold tracking-tight mb-4">
+                Three steps. <span class="gradient-text">That's it.</span>
+            </h2>
+            <p class="text-lg text-gray-600 max-w-2xl mx-auto">
+                From "we should hang out" to "see you Saturday" in under a minute.
+            </p>
+        </div>
+
+        <div class="grid md:grid-cols-3 gap-8 lg:gap-12">
+            <div class="text-center">
+                <div class="w-16 h-16 bg-brand-600 rounded-2xl flex items-center justify-center mx-auto mb-6 text-white text-2xl font-bold shadow-lg shadow-brand-600/25">1</div>
+                <h3 class="text-xl font-bold text-gray-900 mb-3">Create a Poll</h3>
+                <p class="text-gray-600 leading-relaxed">Name your event and pick the candidate dates from a calendar. Takes about 15 seconds.</p>
+            </div>
+            <div class="text-center">
+                <div class="w-16 h-16 bg-brand-600 rounded-2xl flex items-center justify-center mx-auto mb-6 text-white text-2xl font-bold shadow-lg shadow-brand-600/25">2</div>
+                <h3 class="text-xl font-bold text-gray-900 mb-3">Invite Your People</h3>
+                <p class="text-gray-600 leading-relaxed">Add participants by email. They get a link, click it, and vote on dates &mdash; Yes, No, or Maybe.</p>
+            </div>
+            <div class="text-center">
+                <div class="w-16 h-16 bg-brand-600 rounded-2xl flex items-center justify-center mx-auto mb-6 text-white text-2xl font-bold shadow-lg shadow-brand-600/25">3</div>
+                <h3 class="text-xl font-bold text-gray-900 mb-3">Pick the Winner</h3>
+                <p class="text-gray-600 leading-relaxed">See everyone's votes at a glance. The best date is obvious. Book it and move on with your life.</p>
+            </div>
+        </div>
+
+        <div class="text-center mt-12">
+            <a href="/how-it-works" class="inline-flex items-center text-brand-600 font-semibold hover:text-brand-700 transition-colors">
+                Learn more about how it works
+                <svg class="ml-1 w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/></svg>
+            </a>
+        </div>
+    </div>
+</section>
+
+<!-- Testimonials -->
+<section class="py-20 lg:py-28">
+    <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+        <div class="text-center mb-16">
+            <h2 class="text-3xl sm:text-4xl lg:text-5xl font-extrabold tracking-tight mb-4">
+                People <span class="gradient-text">love it.</span>
+            </h2>
+            <p class="text-lg text-gray-600">Don't take our word for it.</p>
+        </div>
+
+        <div class="grid md:grid-cols-3 gap-8">
+            <div class="card-hover bg-white rounded-2xl p-8 border border-gray-100 shadow-sm">
+                <div class="flex items-center gap-1 mb-4">
+                    {% for i in range(5) %}
+                    <svg class="w-5 h-5 text-amber-400" fill="currentColor" viewBox="0 0 20 20"><path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.175 0l-2.8 2.034c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81h3.461a1 1 0 00.951-.69l1.07-3.292z"/></svg>
+                    {% endfor %}
+                </div>
+                <p class="text-gray-700 leading-relaxed mb-6">"We used to spend a full week of back-and-forth emails just to pick a date for our quarterly dinner. Templo made it a 5-minute thing. Genuinely life-changing for our friend group."</p>
+                <div class="flex items-center gap-3">
+                    <div class="w-10 h-10 bg-brand-100 rounded-full flex items-center justify-center font-bold text-brand-700">S</div>
+                    <div>
+                        <p class="font-semibold text-gray-900 text-sm">Sarah M.</p>
+                        <p class="text-xs text-gray-500">Event Organizer</p>
+                    </div>
+                </div>
+            </div>
+
+            <div class="card-hover bg-white rounded-2xl p-8 border border-gray-100 shadow-sm">
+                <div class="flex items-center gap-1 mb-4">
+                    {% for i in range(5) %}
+                    <svg class="w-5 h-5 text-amber-400" fill="currentColor" viewBox="0 0 20 20"><path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.175 0l-2.8 2.034c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81h3.461a1 1 0 00.951-.69l1.07-3.292z"/></svg>
+                    {% endfor %}
+                </div>
+                <p class="text-gray-700 leading-relaxed mb-6">"I manage a remote team of 12 across 3 timezones. Templo is the only scheduling tool that doesn't require everyone to create yet another account. Just click and vote."</p>
+                <div class="flex items-center gap-3">
+                    <div class="w-10 h-10 bg-green-100 rounded-full flex items-center justify-center font-bold text-green-700">J</div>
+                    <div>
+                        <p class="font-semibold text-gray-900 text-sm">James R.</p>
+                        <p class="text-xs text-gray-500">Engineering Manager</p>
+                    </div>
+                </div>
+            </div>
+
+            <div class="card-hover bg-white rounded-2xl p-8 border border-gray-100 shadow-sm">
+                <div class="flex items-center gap-1 mb-4">
+                    {% for i in range(5) %}
+                    <svg class="w-5 h-5 text-amber-400" fill="currentColor" viewBox="0 0 20 20"><path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.175 0l-2.8 2.034c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81h3.461a1 1 0 00.951-.69l1.07-3.292z"/></svg>
+                    {% endfor %}
+                </div>
+                <p class="text-gray-700 leading-relaxed mb-6">"Doodle got too bloated and expensive. When I Discovered Templo it was dead simple. Created a poll for our hockey league and had 20 responses in an hour. The UI is beautiful too."</p>
+                <div class="flex items-center gap-3">
+                    <div class="w-10 h-10 bg-purple-100 rounded-full flex items-center justify-center font-bold text-purple-700">M</div>
+                    <div>
+                        <p class="font-semibold text-gray-900 text-sm">Mike T.</p>
+                        <p class="text-xs text-gray-500">League Coordinator</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</section>
+
+<!-- CTA Section -->
+<section class="py-20 lg:py-28 bg-brand-950">
+    <div class="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 text-center">
+        <h2 class="text-3xl sm:text-4xl lg:text-5xl font-extrabold tracking-tight text-white mb-6">
+            Ready to stop the back-and-forth?
+        </h2>
+        <p class="text-lg text-brand-200 mb-10 max-w-2xl mx-auto">
+            Join Templo today and find out why groups everywhere are ditching email chains for something that actually works.
+        </p>
+        <div class="flex flex-col sm:flex-row items-center justify-center gap-4">
+            <a href="/request-account" class="w-full sm:w-auto inline-flex items-center justify-center px-8 py-4 bg-white text-brand-700 font-semibold rounded-xl hover:bg-brand-50 transition-all text-lg shadow-lg">
+                Get Started Free
+                <svg class="ml-2 w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 7l5 5m0 0l-5 5m5-5H6"/></svg>
+            </a>
+            <a href="/pricing" class="w-full sm:w-auto inline-flex items-center justify-center px-8 py-4 text-brand-200 font-semibold rounded-xl hover:text-white transition-all border border-brand-700 hover:border-brand-500 text-lg">
+                View Pricing
+            </a>
+        </div>
+        <p class="text-sm text-brand-400 mt-6">Free forever for personal use. No credit card required.</p>
+    </div>
+</section>
+
+{% endblock %}
