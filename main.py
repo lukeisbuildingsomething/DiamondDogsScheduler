@@ -274,6 +274,65 @@ def send_admin_request_notification(requester_email, requester_name, reason, app
     return True
 
 
+def send_magic_link_email(to_email, token, poll, request_url_root):
+    if not RESEND_API_KEY:
+        print("ERROR: Resend not configured - missing RESEND_API_KEY")
+        return False, "Missing RESEND_API_KEY"
+
+    magic_url = request_url_root.rstrip("/") + url_for("magic_login", token=token)
+    poll_name = (poll.get("name") if poll else None) or "your poll"
+    inviter_name = get_name(poll.get("admin_email")) if poll else ""
+    inviter_line = f"<p>{inviter_name} invited you to vote on dates for <strong>{poll_name}</strong>.</p>" if inviter_name else f"<p>You've been invited to vote on dates for <strong>{poll_name}</strong>.</p>"
+
+    email_payload = {
+        "from": RESEND_FROM_EMAIL,
+        "to": [to_email],
+        "subject": f"Your sign-in link for {poll_name}",
+        "html": f"""
+        <h2>Sign in to Templo</h2>
+        {inviter_line}
+        <p>Click the button below to open the poll. No password needed.</p>
+        <p><a href="{magic_url}" style="background-color: #4F46E5; color: white; padding: 12px 24px; text-decoration: none; border-radius: 8px; display: inline-block;">Open Poll</a></p>
+        <p>Or copy this link: {magic_url}</p>
+        <p>This link expires in 24 hours and can only be used once.</p>
+        <p style="color: #6b7280; font-size: 14px; margin-top: 20px;">Templo: templobooker.com</p>
+        """
+    }
+
+    try:
+        response = requests.post(
+            "https://api.resend.com/emails",
+            headers={
+                "Authorization": f"Bearer {RESEND_API_KEY}",
+                "Content-Type": "application/json"
+            },
+            json=email_payload,
+            timeout=10
+        )
+
+        if response.status_code == 403 and "domain is not verified" in response.text:
+            email_payload["from"] = "onboarding@resend.dev"
+            response = requests.post(
+                "https://api.resend.com/emails",
+                headers={
+                    "Authorization": f"Bearer {RESEND_API_KEY}",
+                    "Content-Type": "application/json"
+                },
+                json=email_payload,
+                timeout=10
+            )
+
+        if response.status_code in (200, 201):
+            return True, None
+
+        error_summary = f"Resend rejected send (status={response.status_code}): {response.text[:300]}"
+        print(f"ERROR: {error_summary}")
+        return False, error_summary
+    except Exception as e:
+        print(f"ERROR: Failed to send magic link email: {e}")
+        return False, str(e)
+
+
 def get_current_user():
     user_email = normalize_email(session.get("user_email"))
     if not user_email:
@@ -316,6 +375,15 @@ def user_can_access_poll(user, poll):
 
     invited_emails = parse_invite_emails(poll.get("invite_emails"))
     return normalize_email(user.get("email")) in invited_emails
+
+
+def email_is_invited_to_poll(email, poll):
+    if not email or not poll:
+        return False
+    normalized = normalize_email(email)
+    if normalized == normalize_email(poll.get("admin_email")):
+        return True
+    return normalized in parse_invite_emails(poll.get("invite_emails"))
 
 
 def get_owned_poll_count(email):
@@ -442,6 +510,18 @@ def init_db():
             reviewed_by TEXT,
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             reviewed_at TIMESTAMP
+        )
+    ''')
+
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS magic_links (
+            id SERIAL PRIMARY KEY,
+            email TEXT NOT NULL,
+            token TEXT UNIQUE NOT NULL,
+            poll_id TEXT,
+            expires_at TIMESTAMP NOT NULL,
+            used_at TIMESTAMP,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )
     ''')
 
@@ -874,8 +954,7 @@ def update_invite_emails(poll_id):
 def view_poll(poll_id):
     current_user = get_current_user()
     if not current_user:
-        flash("Please log in first to view this poll.", "error")
-        return redirect(url_for("login"))
+        return redirect(url_for("poll_access", poll_id=poll_id))
 
     conn = get_db()
     cursor = conn.cursor(cursor_factory=RealDictCursor)
@@ -928,6 +1007,97 @@ def view_poll(poll_id):
         user_email=current_user["email"],
         best_dates=best_dates
     )
+
+
+@app.route("/poll/<poll_id>/access", methods=["GET", "POST"])
+def poll_access(poll_id):
+    if get_current_user():
+        return redirect(url_for("view_poll", poll_id=poll_id))
+
+    conn = get_db()
+    cursor = conn.cursor(cursor_factory=RealDictCursor)
+    cursor.execute("SELECT * FROM polls WHERE id = %s", (poll_id,))
+    poll = cursor.fetchone()
+    conn.close()
+
+    if not poll:
+        flash("That poll link doesn't exist or has been deleted.", "error")
+        return redirect(url_for("home"))
+
+    if request.method == "POST":
+        email = normalize_email(request.form.get("email", ""))
+        if not email or "@" not in email:
+            flash("Please enter a valid email address.", "error")
+            return redirect(url_for("poll_access", poll_id=poll_id))
+
+        if email_is_invited_to_poll(email, poll):
+            token = generate_token()
+            conn = get_db()
+            cursor = conn.cursor()
+            cursor.execute(
+                "INSERT INTO magic_links (email, token, poll_id, expires_at) VALUES (%s, %s, %s, NOW() + INTERVAL '24 hours')",
+                (email, token, poll_id)
+            )
+            conn.commit()
+            conn.close()
+
+            sent, error = send_magic_link_email(email, token, poll, request.url_root)
+            if sent:
+                flash(f"Check your inbox — we've sent a sign-in link to {email}.", "success")
+            else:
+                flash("We couldn't send your sign-in email right now. Please try again in a minute.", "error")
+                if error:
+                    print(f"ERROR: Magic link send failed for {email}: {error}")
+            return redirect(url_for("poll_access", poll_id=poll_id))
+
+        return redirect(url_for("request_account", email=email, poll=poll_id))
+
+    return render_template(
+        "poll_access.html",
+        poll=poll,
+        admin_name=get_name(poll.get("admin_email"))
+    )
+
+
+@app.route("/magic/<token>")
+def magic_login(token):
+    conn = get_db()
+    cursor = conn.cursor(cursor_factory=RealDictCursor)
+    cursor.execute(
+        "SELECT * FROM magic_links WHERE token = %s AND expires_at > NOW() AND used_at IS NULL",
+        (token,)
+    )
+    link = cursor.fetchone()
+
+    if not link:
+        conn.close()
+        flash("This sign-in link has expired or already been used. Enter your email below to get a new one.", "error")
+        return redirect(url_for("login"))
+
+    email = normalize_email(link["email"])
+    poll_id = link["poll_id"]
+
+    cursor.execute("UPDATE magic_links SET used_at = NOW() WHERE id = %s", (link["id"],))
+
+    cursor.execute("SELECT id FROM users WHERE LOWER(email) = %s", (email,))
+    if not cursor.fetchone():
+        cursor.execute(
+            "INSERT INTO users (email, role, tier, is_verified) VALUES (%s, %s, %s, TRUE)",
+            (email, default_role_for_email(email), default_tier_for_email(email))
+        )
+    else:
+        cursor.execute("UPDATE users SET is_verified = TRUE WHERE LOWER(email) = %s", (email,))
+
+    sync_admin_account(conn, email)
+    conn.commit()
+    conn.close()
+
+    session["user_email"] = email
+    flash(f"Signed in as {get_name(email)}.", "success")
+
+    if poll_id:
+        return redirect(url_for("view_poll", poll_id=poll_id))
+    return redirect(url_for("dashboard"))
 
 
 @app.route("/poll/<poll_id>/delete", methods=["POST"])
@@ -1257,7 +1427,21 @@ def request_account():
         flash("Your request has been submitted! You'll receive an email once an admin approves your account.", "success")
         return redirect(url_for("request_account"))
 
-    return render_template("request_account.html")
+    prefill_email = normalize_email(request.args.get("email", ""))
+    requested_poll = None
+    poll_id_arg = request.args.get("poll", "").strip()
+    if poll_id_arg:
+        conn = get_db()
+        cursor = conn.cursor(cursor_factory=RealDictCursor)
+        cursor.execute("SELECT id, name FROM polls WHERE id = %s", (poll_id_arg,))
+        requested_poll = cursor.fetchone()
+        conn.close()
+
+    return render_template(
+        "request_account.html",
+        prefill_email=prefill_email,
+        requested_poll=requested_poll
+    )
 
 
 @app.route("/approve-request/<token>")

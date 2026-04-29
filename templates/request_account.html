@@ -12,6 +12,12 @@
             <p class="text-gray-600">Fill out the form below and you'll get access once approved. Usually within a few hours.</p>
         </div>
 
+        {% if requested_poll %}
+        <div class="bg-brand-50 border border-brand-200 rounded-xl p-4 mb-6 text-sm text-brand-900">
+            That email isn't on the invite list for <strong>{{ requested_poll.name }}</strong>. Submit this request and the poll owner can let you in.
+        </div>
+        {% endif %}
+
         <div class="bg-white rounded-2xl border border-gray-200 shadow-sm p-8">
             <form action="/request-account" method="POST" class="space-y-5">
                 <div>
@@ -21,6 +27,7 @@
                         id="email"
                         name="email"
                         required
+                        value="{{ prefill_email or '' }}"
                         class="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-brand-500 focus:border-brand-500 transition-colors"
                         placeholder="you@example.com"
                     >
