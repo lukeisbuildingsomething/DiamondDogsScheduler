@@ -8,17 +8,17 @@
 <section class="py-12 lg:py-20">
     <div class="max-w-lg mx-auto px-4 sm:px-6 lg:px-8">
         <div class="text-center mb-8">
-            <p class="text-xs uppercase tracking-wider font-semibold text-brand-600 mb-3">You've been invited</p>
+            <p class="text-xs uppercase tracking-wider font-semibold text-brand-600 mb-3">Sign in to vote</p>
             <h1 class="text-3xl sm:text-4xl font-extrabold tracking-tight mb-3">{{ poll.name }}</h1>
             {% if admin_name %}
-            <p class="text-gray-600">{{ admin_name }} invited you to vote on dates for this poll.</p>
+            <p class="text-gray-600">{{ admin_name }} shared this poll with you.</p>
             {% else %}
             <p class="text-gray-600">Vote on dates for this poll.</p>
             {% endif %}
         </div>
 
         <div class="bg-white rounded-2xl border border-gray-200 shadow-sm p-8">
-            <p class="text-sm text-gray-700 mb-5">Enter your email and we'll send you a one-click sign-in link. No password needed.</p>
+            <p class="text-sm text-gray-700 mb-5">Enter your email and we'll send you a one-click sign-in link. No password needed — we'll create your account on first use.</p>
             <form action="{{ url_for('poll_access', poll_id=poll.id) }}" method="POST" class="space-y-5">
                 <div>
                     <label for="email" class="block text-sm font-medium text-gray-700 mb-1.5">Email <span class="text-red-500">*</span></label>

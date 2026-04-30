@@ -377,15 +377,6 @@ def user_can_access_poll(user, poll):
     return normalize_email(user.get("email")) in invited_emails
 
 
-def email_is_invited_to_poll(email, poll):
-    if not email or not poll:
-        return False
-    normalized = normalize_email(email)
-    if normalized == normalize_email(poll.get("admin_email")):
-        return True
-    return normalized in parse_invite_emails(poll.get("invite_emails"))
-
-
 def get_owned_poll_count(email):
     conn = get_db()
     cursor = conn.cursor()
@@ -953,58 +944,51 @@ def update_invite_emails(poll_id):
 @app.route("/poll/<poll_id>")
 def view_poll(poll_id):
     current_user = get_current_user()
-    if not current_user:
-        return redirect(url_for("poll_access", poll_id=poll_id))
 
     conn = get_db()
     cursor = conn.cursor(cursor_factory=RealDictCursor)
-    
+
     cursor.execute("SELECT * FROM polls WHERE id = %s", (poll_id,))
     poll = cursor.fetchone()
-    
+
     if not poll:
         conn.close()
         flash("Poll not found", "error")
         return redirect(url_for("home"))
 
-    if not user_can_access_poll(current_user, poll):
-        conn.close()
-        flash("You are not invited to this poll.", "error")
-        return redirect(url_for("dashboard"))
-    
     cursor.execute("SELECT * FROM dates WHERE poll_id = %s ORDER BY date", (poll_id,))
     dates = cursor.fetchall()
-    
+
     votes_dict = {}
     participants = set()
     yes_counts = {}
-    
+
     for date in dates:
         cursor.execute(
             "SELECT user_email, status FROM votes WHERE date_id = %s",
             (date["id"],)
         )
         date_votes = cursor.fetchall()
-            
+
         votes_dict[date["id"]] = {v["user_email"]: v["status"] for v in date_votes}
         yes_counts[date["id"]] = sum(1 for v in date_votes if v["status"] == "yes")
         for v in date_votes:
             participants.add(v["user_email"])
-    
+
     conn.close()
-    
+
     max_yes = max(yes_counts.values()) if yes_counts else 0
     best_dates = [d_id for d_id, count in yes_counts.items() if count == max_yes and max_yes > 0]
-    
+
     poll["can_manage"] = user_can_manage_poll(current_user, poll)
-    
+
     return render_template(
         "vote.html",
         poll=poll,
         dates=dates,
         votes_dict=votes_dict,
         participants=sorted(participants),
-        user_email=current_user["email"],
+        user_email=current_user["email"] if current_user else None,
         best_dates=best_dates
     )
 
@@ -1030,27 +1014,24 @@ def poll_access(poll_id):
             flash("Please enter a valid email address.", "error")
             return redirect(url_for("poll_access", poll_id=poll_id))
 
-        if email_is_invited_to_poll(email, poll):
-            token = generate_token()
-            conn = get_db()
-            cursor = conn.cursor()
-            cursor.execute(
-                "INSERT INTO magic_links (email, token, poll_id, expires_at) VALUES (%s, %s, %s, NOW() + INTERVAL '24 hours')",
-                (email, token, poll_id)
-            )
-            conn.commit()
-            conn.close()
+        token = generate_token()
+        conn = get_db()
+        cursor = conn.cursor()
+        cursor.execute(
+            "INSERT INTO magic_links (email, token, poll_id, expires_at) VALUES (%s, %s, %s, NOW() + INTERVAL '24 hours')",
+            (email, token, poll_id)
+        )
+        conn.commit()
+        conn.close()
 
-            sent, error = send_magic_link_email(email, token, poll, request.url_root)
-            if sent:
-                flash(f"Check your inbox — we've sent a sign-in link to {email}.", "success")
-            else:
-                flash("We couldn't send your sign-in email right now. Please try again in a minute.", "error")
-                if error:
-                    print(f"ERROR: Magic link send failed for {email}: {error}")
-            return redirect(url_for("poll_access", poll_id=poll_id))
-
-        return redirect(url_for("request_account", email=email, poll=poll_id))
+        sent, error = send_magic_link_email(email, token, poll, request.url_root)
+        if sent:
+            flash(f"Check your inbox — we've sent a sign-in link to {email}.", "success")
+        else:
+            flash("We couldn't send your sign-in email right now. Please try again in a minute.", "error")
+            if error:
+                print(f"ERROR: Magic link send failed for {email}: {error}")
+        return redirect(url_for("poll_access", poll_id=poll_id))
 
     return render_template(
         "poll_access.html",
@@ -1139,12 +1120,12 @@ def delete_poll(poll_id):
 def submit_vote(poll_id):
     current_user = get_current_user()
     if not current_user:
-        return jsonify({"error": "Please log in first"}), 401
-    
+        return jsonify({"error": "Please sign in to vote", "needs_login": True}), 401
+
     data = request.get_json(silent=True) or {}
     date_id = data.get("date_id")
     status = data.get("status")
-    
+
     if not date_id or status not in ["yes", "no", "maybe"]:
         return jsonify({"error": "Invalid vote data"}), 400
 
@@ -1152,7 +1133,7 @@ def submit_vote(poll_id):
         date_id = int(date_id)
     except (TypeError, ValueError):
         return jsonify({"error": "Invalid date ID"}), 400
-    
+
     conn = get_db()
     cursor = conn.cursor(cursor_factory=RealDictCursor)
 
@@ -1162,15 +1143,11 @@ def submit_vote(poll_id):
         conn.close()
         return jsonify({"error": "Poll not found"}), 404
 
-    if not user_can_access_poll(current_user, poll):
-        conn.close()
-        return jsonify({"error": "You are not invited to this poll"}), 403
-
     cursor.execute("SELECT id FROM dates WHERE id = %s AND poll_id = %s", (date_id, poll_id))
     if not cursor.fetchone():
         conn.close()
         return jsonify({"error": "Invalid date for this poll"}), 400
-    
+
     cursor.execute(
         '''INSERT INTO votes (date_id, user_email, status)
            VALUES (%s, %s, %s)
@@ -1178,10 +1155,20 @@ def submit_vote(poll_id):
            DO UPDATE SET status = EXCLUDED.status''',
         (date_id, current_user["email"], status)
     )
-    
+
+    voter_email = normalize_email(current_user["email"])
+    if voter_email and voter_email != normalize_email(poll.get("admin_email")):
+        invited = set(parse_invite_emails(poll.get("invite_emails")))
+        if voter_email not in invited:
+            invited.add(voter_email)
+            cursor.execute(
+                "UPDATE polls SET invite_emails = %s WHERE id = %s",
+                (serialize_invite_emails(invited), poll_id)
+            )
+
     conn.commit()
     conn.close()
-    
+
     return jsonify({"success": True, "date_removed": False})
 
 
@@ -1486,9 +1473,13 @@ def approve_request_via_email(token):
     conn.commit()
     conn.close()
 
-    send_verification_email(email, verify_token, request.url_root)
+    sent, error = send_verification_email(email, verify_token, request.url_root)
 
-    flash(f"Account request for {email} has been approved. They've been sent a verification email.", "success")
+    if sent:
+        flash(f"Account request for {email} has been approved. They've been sent a verification email.", "success")
+    else:
+        flash(f"Account approved for {email}, but the verification email failed to send: {error}", "error")
+
     # If admin is logged in, go to admin panel; otherwise go to login
     if session.get("user_email"):
         return redirect(url_for("admin_panel"))
@@ -1537,9 +1528,13 @@ def admin_approve_request(request_id):
     conn.commit()
     conn.close()
 
-    send_verification_email(email, verify_token, request.url_root)
+    sent, error = send_verification_email(email, verify_token, request.url_root)
 
-    flash(f"Approved! Verification email sent to {email}.", "success")
+    if sent:
+        flash(f"Approved! Verification email sent to {email}.", "success")
+    else:
+        flash(f"Approved {email}, but the verification email failed to send: {error}", "error")
+
     return redirect(url_for("admin_panel"))
 
 
