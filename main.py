@@ -1046,20 +1046,27 @@ def magic_login(token):
     conn = get_db()
     cursor = conn.cursor(cursor_factory=RealDictCursor)
     cursor.execute(
-        "SELECT * FROM magic_links WHERE token = %s AND expires_at > NOW() AND used_at IS NULL",
+        '''SELECT * FROM magic_links
+           WHERE token = %s
+             AND expires_at > NOW()
+             AND (used_at IS NULL OR used_at > NOW() - INTERVAL '10 minutes')''',
         (token,)
     )
     link = cursor.fetchone()
 
     if not link:
         conn.close()
+        existing_email = normalize_email(session.get("user_email"))
+        if existing_email:
+            return redirect(url_for("dashboard"))
         flash("This sign-in link has expired or already been used. Enter your email below to get a new one.", "error")
         return redirect(url_for("login"))
 
     email = normalize_email(link["email"])
     poll_id = link["poll_id"]
 
-    cursor.execute("UPDATE magic_links SET used_at = NOW() WHERE id = %s", (link["id"],))
+    if link["used_at"] is None:
+        cursor.execute("UPDATE magic_links SET used_at = NOW() WHERE id = %s", (link["id"],))
 
     cursor.execute("SELECT id FROM users WHERE LOWER(email) = %s", (email,))
     if not cursor.fetchone():
@@ -1074,9 +1081,11 @@ def magic_login(token):
     conn.commit()
     conn.close()
 
+    already_signed_in = normalize_email(session.get("user_email")) == email
     session.permanent = True
     session["user_email"] = email
-    flash(f"Signed in as {get_name(email)}.", "success")
+    if not already_signed_in:
+        flash(f"Signed in as {get_name(email)}.", "success")
 
     if poll_id:
         return redirect(url_for("view_poll", poll_id=poll_id))
