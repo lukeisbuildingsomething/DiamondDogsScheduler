@@ -1,5 +1,6 @@
 import os
 import random
+import re
 import string
 import secrets
 from pathlib import Path
@@ -7,9 +8,8 @@ import psycopg2
 import requests
 from dotenv import load_dotenv
 from psycopg2.extras import RealDictCursor
-from datetime import datetime
+from datetime import datetime, timedelta
 from flask import Flask, render_template, request, redirect, url_for, session, jsonify, flash
-from werkzeug.security import generate_password_hash, check_password_hash
 from werkzeug.utils import secure_filename
 
 load_dotenv()
@@ -18,6 +18,7 @@ app = Flask(__name__)
 app.secret_key = os.environ.get("SESSION_SECRET")
 if not app.secret_key:
     raise RuntimeError("SESSION_SECRET environment variable is required")
+app.permanent_session_lifetime = timedelta(days=30)
 
 DATABASE_URL = os.environ.get("DATABASE_URL")
 
@@ -268,19 +269,6 @@ def generate_token():
     return secrets.token_urlsafe(32)
 
 
-def send_verification_email(to_email, token, request_url_root):
-    verify_url = request_url_root.rstrip("/") + url_for("verify_email", token=token)
-    html_body = f"""
-        <h2>Welcome to Templo!</h2>
-        <p>Click the link below to verify your email and set up your password:</p>
-        <p><a href="{verify_url}" style="background-color: #4F46E5; color: white; padding: 12px 24px; text-decoration: none; border-radius: 8px; display: inline-block;">Verify Email</a></p>
-        <p>Or copy this link: {verify_url}</p>
-        <p>Templo: templobooker.com</p>
-        <p>This link expires in 24 hours.</p>
-    """
-    return send_email(to_email, "Verify your Templo account", html_body)
-
-
 def send_admin_request_notification(requester_email, requester_name, reason, approval_token, request_url_root):
     approve_url = request_url_root.rstrip("/") + url_for("approve_request_via_email", token=approval_token)
     admin_url = request_url_root.rstrip("/") + url_for("admin_panel")
@@ -380,6 +368,34 @@ def user_can_access_poll(user, poll):
     return normalize_email(user.get("email")) in invited_emails
 
 
+def poll_is_invite_only(poll):
+    return (poll.get("access_mode") or "public_link") == "invite_only"
+
+
+def is_user_paid(user):
+    if not user:
+        return False
+    if (user.get("role") or "").lower() == "admin":
+        return True
+    return (user.get("tier") or "").lower() == "paid"
+
+
+def can_view_poll(user, poll):
+    if not poll:
+        return False
+    if not poll_is_invite_only(poll):
+        return True
+    return user_can_access_poll(user, poll)
+
+
+def can_vote_on_poll(user, poll):
+    if not user or not poll:
+        return False
+    if not poll_is_invite_only(poll):
+        return True
+    return user_can_access_poll(user, poll)
+
+
 def get_owned_poll_count(email):
     conn = get_db()
     cursor = conn.cursor()
@@ -430,9 +446,19 @@ def init_db():
             name TEXT NOT NULL,
             admin_email TEXT NOT NULL,
             invite_emails TEXT,
+            access_mode TEXT DEFAULT 'public_link' CHECK(access_mode IN ('public_link', 'invite_only')),
+            slug TEXT UNIQUE,
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )
     ''')
+
+    try:
+        cursor.execute("ALTER TABLE polls ADD COLUMN IF NOT EXISTS access_mode TEXT DEFAULT 'public_link'")
+        cursor.execute("ALTER TABLE polls ADD COLUMN IF NOT EXISTS slug TEXT")
+        cursor.execute("UPDATE polls SET access_mode = 'public_link' WHERE access_mode IS NULL")
+        cursor.execute("CREATE UNIQUE INDEX IF NOT EXISTS polls_slug_unique ON polls(slug) WHERE slug IS NOT NULL")
+    except Exception as e:
+        print(f"WARNING: polls migration: {e}")
     
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS dates (
@@ -566,174 +592,47 @@ def home():
 def login():
     if request.method == "POST":
         email = normalize_email(request.form.get("email", ""))
-        password = request.form.get("password", "")
-        
-        if not email:
-            flash("Please enter your email", "error")
+
+        if not email or "@" not in email:
+            flash("Please enter a valid email address.", "error")
             return redirect(url_for("login"))
-        
+
         if not is_allowed_email(email):
             flash("No account found for this email. Please request access first.", "error")
-            return redirect(url_for("request_account"))
-        
+            return redirect(url_for("request_account", email=email))
+
         conn = get_db()
-        cursor = conn.cursor(cursor_factory=RealDictCursor)
-        
-        cursor.execute("SELECT * FROM users WHERE email = %s", (email,))
-        user = cursor.fetchone()
+        cursor = conn.cursor()
+        cursor.execute(
+            "INSERT INTO users (email, role, tier) VALUES (%s, %s, %s) ON CONFLICT DO NOTHING",
+            (email, default_role_for_email(email), default_tier_for_email(email))
+        )
+        sync_admin_account(conn, email)
+
+        token = generate_token()
+        cursor.execute(
+            "INSERT INTO magic_links (email, token, poll_id, expires_at) VALUES (%s, %s, NULL, NOW() + INTERVAL '24 hours')",
+            (email, token)
+        )
+        conn.commit()
         conn.close()
 
-        if user and email in ADMIN_EMAILS and (user.get("role") != "admin" or user.get("tier") != "paid"):
-            conn = get_db()
-            sync_admin_account(conn, email)
-            conn.commit()
-            conn.close()
+        sent, error = send_magic_link_email(email, token, None, request.url_root)
+        if sent:
+            flash(f"Check your inbox — we've sent a sign-in link to {email}.", "success")
+        else:
+            flash("We couldn't send your sign-in email right now. Please try again in a minute.", "error")
+            if error:
+                print(f"ERROR: Login magic-link send failed for {email}: {error}")
+        return redirect(url_for("login"))
 
-            conn = get_db()
-            cursor = conn.cursor(cursor_factory=RealDictCursor)
-            cursor.execute("SELECT * FROM users WHERE email = %s", (email,))
-            user = cursor.fetchone()
-            conn.close()
-        
-        if not user:
-            conn = get_db()
-            cursor = conn.cursor()
-            cursor.execute(
-                "INSERT INTO users (email, role, tier) VALUES (%s, %s, %s) ON CONFLICT DO NOTHING",
-                (email, default_role_for_email(email), default_tier_for_email(email))
-            )
-            sync_admin_account(conn, email)
-            conn.commit()
-            conn.close()
-            
-            token = generate_token()
-            conn = get_db()
-            cursor = conn.cursor()
-            cursor.execute(
-                "INSERT INTO verification_tokens (email, token, expires_at) VALUES (%s, %s, NOW() + INTERVAL '24 hours')",
-                (email, token)
-            )
-            conn.commit()
-            conn.close()
-            
-            sent, error = send_verification_email(email, token, request.url_root)
-            if sent:
-                flash("Welcome! We've sent you a verification email. Please check your inbox to set up your password.", "success")
-            else:
-                flash("We could not send your verification email right now. Please try again in a minute.", "error")
-                if error:
-                    print(f"ERROR: Verification email send failed for {email}: {error}")
-            return redirect(url_for("login"))
-        
-        if not user["is_verified"]:
-            token = generate_token()
-            conn = get_db()
-            cursor = conn.cursor()
-            cursor.execute("DELETE FROM verification_tokens WHERE email = %s", (email,))
-            cursor.execute(
-                "INSERT INTO verification_tokens (email, token, expires_at) VALUES (%s, %s, NOW() + INTERVAL '24 hours')",
-                (email, token)
-            )
-            conn.commit()
-            conn.close()
-            
-            sent, error = send_verification_email(email, token, request.url_root)
-            if sent:
-                flash("Your account is not verified. We've sent a new verification email.", "error")
-            else:
-                flash("Your account is not verified, but we could not send a new email yet. Please try again shortly.", "error")
-                if error:
-                    print(f"ERROR: Verification email resend failed for {email}: {error}")
-            return redirect(url_for("login"))
-        
-        if not password:
-            flash("Please enter your password", "error")
-            return redirect(url_for("login"))
-        
-        if not check_password_hash(user["password_hash"], password):
-            flash("Incorrect password", "error")
-            return redirect(url_for("login"))
-        
-        session["user_email"] = email
-        flash(f"Welcome back, {get_name(email)}!", "success")
-        return redirect(url_for("home"))
-    
     return render_template("login.html")
 
 
 @app.route("/verify/<token>")
 def verify_email(token):
-    conn = get_db()
-    cursor = conn.cursor(cursor_factory=RealDictCursor)
-    
-    cursor.execute(
-        "SELECT * FROM verification_tokens WHERE token = %s AND expires_at > NOW()",
-        (token,)
-    )
-    token_record = cursor.fetchone()
-    
-    if not token_record:
-        conn.close()
-        flash("Invalid or expired verification link", "error")
-        return redirect(url_for("login"))
-    
-    email = token_record["email"]
-    cursor.execute("SELECT password_hash FROM users WHERE email = %s", (email,))
-    user = cursor.fetchone()
-
-    # If the account already has a password (e.g., email update flow), verification can complete immediately.
-    if user and user.get("password_hash"):
-        cursor.execute("UPDATE users SET is_verified = TRUE WHERE email = %s", (email,))
-        cursor.execute("DELETE FROM verification_tokens WHERE email = %s", (email,))
-        conn.commit()
-        conn.close()
-        flash("Email verified successfully. Please sign in.", "success")
-        return redirect(url_for("login"))
-
-    session["pending_verification_email"] = email
-    conn.close()
-    
-    return redirect(url_for("set_password"))
-
-
-@app.route("/set-password", methods=["GET", "POST"])
-def set_password():
-    email = session.get("pending_verification_email")
-    
-    if not email:
-        flash("Please verify your email first", "error")
-        return redirect(url_for("login"))
-    
-    if request.method == "POST":
-        password = request.form.get("password", "")
-        confirm_password = request.form.get("confirm_password", "")
-        
-        if len(password) < 6:
-            flash("Password must be at least 6 characters", "error")
-            return redirect(url_for("set_password"))
-        
-        if password != confirm_password:
-            flash("Passwords do not match", "error")
-            return redirect(url_for("set_password"))
-        
-        conn = get_db()
-        cursor = conn.cursor()
-        
-        cursor.execute(
-            "UPDATE users SET password_hash = %s, is_verified = TRUE WHERE email = %s",
-            (generate_password_hash(password), email)
-        )
-        cursor.execute("DELETE FROM verification_tokens WHERE email = %s", (email,))
-        conn.commit()
-        conn.close()
-        
-        session.pop("pending_verification_email", None)
-        session["user_email"] = email
-        
-        flash("Password set successfully! You are now logged in.", "success")
-        return redirect(url_for("home"))
-    
-    return render_template("set_password.html", email=email)
+    flash("Templo no longer uses passwords — sign in with a one-click email link instead.", "success")
+    return redirect(url_for("login"))
 
 
 @app.route("/create")
@@ -901,12 +800,52 @@ def share_poll(poll_id):
         conn.close()
         return redirect(url_for("view_poll", poll_id=poll_id))
 
-    poll["invite_emails"] = serialize_invite_emails(parse_invite_emails(poll.get("invite_emails")))
+    invited = parse_invite_emails(poll.get("invite_emails"))
+    poll["invite_emails"] = serialize_invite_emails(invited)
+    poll["access_mode"] = poll.get("access_mode") or "public_link"
+
+    invitee_status = []
+    if invited:
+        cursor.execute(
+            '''SELECT v.user_email, v.status, v.created_at
+               FROM votes v
+               JOIN dates d ON d.id = v.date_id
+               WHERE d.poll_id = %s''',
+            (poll_id,)
+        )
+        rows = cursor.fetchall()
+        latest = {}
+        for row in rows:
+            email_norm = normalize_email(row["user_email"])
+            existing = latest.get(email_norm)
+            if not existing or (row["created_at"] and row["created_at"] > existing["created_at"]):
+                latest[email_norm] = {"status": row["status"], "created_at": row["created_at"]}
+
+        for email in invited:
+            v = latest.get(email)
+            invitee_status.append({
+                "email": email,
+                "voted": v is not None,
+                "last_status": v["status"] if v else None,
+                "last_voted_at": v["created_at"] if v else None,
+            })
+
     conn.close()
-    
-    poll_url = request.url_root.rstrip("/") + url_for("view_poll", poll_id=poll_id)
-    
-    return render_template("share.html", poll=poll, poll_url=poll_url)
+
+    base_url = request.url_root.rstrip("/")
+    if poll.get("slug"):
+        poll_url = base_url + "/p/" + poll["slug"]
+    else:
+        poll_url = base_url + url_for("view_poll", poll_id=poll_id)
+
+    return render_template(
+        "share.html",
+        poll=poll,
+        poll_url=poll_url,
+        invitee_status=invitee_status,
+        is_paid=is_user_paid(current_user),
+        base_url=base_url,
+    )
 
 
 @app.route("/share/<poll_id>/update-emails", methods=["POST"])
@@ -918,9 +857,14 @@ def update_invite_emails(poll_id):
     data = request.get_json(silent=True) or {}
     emails = data.get("emails", "")
     poll_name = (data.get("name") or "").strip()
+    access_mode = (data.get("access_mode") or "").strip().lower()
+    slug = (data.get("slug") or "").strip().lower() or None
+
     if poll_name and len(poll_name) > 120:
         return jsonify({"error": "Poll name is too long (max 120 characters)."}), 400
-    
+    if access_mode and access_mode not in ("public_link", "invite_only"):
+        return jsonify({"error": "Invalid access mode."}), 400
+
     conn = get_db()
     cursor = conn.cursor(cursor_factory=RealDictCursor)
     cursor.execute("SELECT * FROM polls WHERE id = %s", (poll_id,))
@@ -935,21 +879,54 @@ def update_invite_emails(poll_id):
         return jsonify({"error": "You do not have permission to edit this poll"}), 403
 
     invite_text = serialize_invite_emails(parse_invite_emails(emails))
+
+    if slug is not None:
+        if not is_user_paid(current_user):
+            conn.close()
+            return jsonify({"error": "Custom URLs are a Pro feature."}), 403
+        if slug:
+            if not re.match(r"^[a-z0-9][a-z0-9-]{2,39}$", slug):
+                conn.close()
+                return jsonify({"error": "Slug must be 3-40 lowercase letters/numbers/dashes, starting with a letter or digit."}), 400
+            cursor.execute("SELECT id FROM polls WHERE slug = %s AND id != %s", (slug, poll_id))
+            if cursor.fetchone():
+                conn.close()
+                return jsonify({"error": "That custom URL is already taken."}), 400
+
+    fields = ["invite_emails = %s"]
+    params = [invite_text]
     if poll_name:
-        cursor.execute(
-            "UPDATE polls SET name = %s, invite_emails = %s WHERE id = %s",
-            (poll_name, invite_text, poll_id)
-        )
-    else:
-        cursor.execute(
-            "UPDATE polls SET invite_emails = %s WHERE id = %s",
-            (invite_text, poll_id)
-        )
+        fields.append("name = %s")
+        params.append(poll_name)
+    if access_mode:
+        fields.append("access_mode = %s")
+        params.append(access_mode)
+    if slug is not None:
+        fields.append("slug = %s")
+        params.append(slug or None)
+    params.append(poll_id)
+    cursor.execute(f"UPDATE polls SET {', '.join(fields)} WHERE id = %s", tuple(params))
 
     conn.commit()
     conn.close()
-    
+
     return jsonify({"success": True, "invite_count": len(parse_invite_emails(invite_text))})
+
+
+@app.route("/p/<slug>")
+def view_poll_by_slug(slug):
+    slug = (slug or "").strip().lower()
+    if not slug:
+        return redirect(url_for("home"))
+    conn = get_db()
+    cursor = conn.cursor(cursor_factory=RealDictCursor)
+    cursor.execute("SELECT id FROM polls WHERE slug = %s", (slug,))
+    row = cursor.fetchone()
+    conn.close()
+    if not row:
+        flash("Poll not found", "error")
+        return redirect(url_for("home"))
+    return redirect(url_for("view_poll", poll_id=row["id"]))
 
 
 @app.route("/poll/<poll_id>")
@@ -966,6 +943,13 @@ def view_poll(poll_id):
         conn.close()
         flash("Poll not found", "error")
         return redirect(url_for("home"))
+
+    if not can_view_poll(current_user, poll):
+        conn.close()
+        if not current_user:
+            return redirect(url_for("poll_access", poll_id=poll_id))
+        flash("This poll is invite-only and you're not on the list.", "error")
+        return redirect(url_for("dashboard"))
 
     cursor.execute("SELECT * FROM dates WHERE poll_id = %s ORDER BY date", (poll_id,))
     dates = cursor.fetchall()
@@ -1024,6 +1008,12 @@ def poll_access(poll_id):
         if not email or "@" not in email:
             flash("Please enter a valid email address.", "error")
             return redirect(url_for("poll_access", poll_id=poll_id))
+
+        if poll_is_invite_only(poll):
+            invited = parse_invite_emails(poll.get("invite_emails"))
+            if email != normalize_email(poll.get("admin_email")) and email not in invited:
+                flash("This poll is invite-only. Ask the poll creator to add your email.", "error")
+                return redirect(url_for("poll_access", poll_id=poll_id))
 
         token = generate_token()
         conn = get_db()
@@ -1084,6 +1074,7 @@ def magic_login(token):
     conn.commit()
     conn.close()
 
+    session.permanent = True
     session["user_email"] = email
     flash(f"Signed in as {get_name(email)}.", "success")
 
@@ -1154,6 +1145,10 @@ def submit_vote(poll_id):
         conn.close()
         return jsonify({"error": "Poll not found"}), 404
 
+    if not can_vote_on_poll(current_user, poll):
+        conn.close()
+        return jsonify({"error": "This poll is invite-only and you're not on the list."}), 403
+
     cursor.execute("SELECT id FROM dates WHERE id = %s AND poll_id = %s", (date_id, poll_id))
     if not cursor.fetchone():
         conn.close()
@@ -1168,7 +1163,7 @@ def submit_vote(poll_id):
     )
 
     voter_email = normalize_email(current_user["email"])
-    if voter_email and voter_email != normalize_email(poll.get("admin_email")):
+    if voter_email and voter_email != normalize_email(poll.get("admin_email")) and not poll_is_invite_only(poll):
         invited = set(parse_invite_emails(poll.get("invite_emails")))
         if voter_email not in invited:
             invited.add(voter_email)
@@ -1569,32 +1564,30 @@ def approve_request_via_email(token):
         (req["id"],)
     )
 
-    # Create user account if it doesn't exist
     cursor.execute("SELECT id FROM users WHERE LOWER(email) = %s", (email,))
     if not cursor.fetchone():
         cursor.execute(
-            "INSERT INTO users (email, display_name, role, tier) VALUES (%s, %s, %s, %s)",
+            "INSERT INTO users (email, display_name, role, tier, is_verified) VALUES (%s, %s, %s, %s, TRUE)",
             (email, req.get("name"), default_role_for_email(email), default_tier_for_email(email))
         )
+    else:
+        cursor.execute("UPDATE users SET is_verified = TRUE WHERE LOWER(email) = %s", (email,))
 
-    # Generate verification token and send setup email
-    verify_token = generate_token()
-    cursor.execute("DELETE FROM verification_tokens WHERE email = %s", (email,))
+    magic_token = generate_token()
     cursor.execute(
-        "INSERT INTO verification_tokens (email, token, expires_at) VALUES (%s, %s, NOW() + INTERVAL '24 hours')",
-        (email, verify_token)
+        "INSERT INTO magic_links (email, token, poll_id, expires_at) VALUES (%s, %s, NULL, NOW() + INTERVAL '24 hours')",
+        (email, magic_token)
     )
     conn.commit()
     conn.close()
 
-    sent, error = send_verification_email(email, verify_token, request.url_root)
+    sent, error = send_magic_link_email(email, magic_token, None, request.url_root)
 
     if sent:
-        flash(f"Account request for {email} has been approved. They've been sent a verification email.", "success")
+        flash(f"Account request for {email} approved. They've been sent a one-click sign-in link.", "success")
     else:
-        flash(f"Account approved for {email}, but the verification email failed to send: {error}", "error")
+        flash(f"Account approved for {email}, but the sign-in email failed to send: {error}", "error")
 
-    # If admin is logged in, go to admin panel; otherwise go to login
     if session.get("user_email"):
         return redirect(url_for("admin_panel"))
     return redirect(url_for("login"))
@@ -1625,29 +1618,29 @@ def admin_approve_request(request_id):
         (current_user["email"], request_id)
     )
 
-    # Create user account if it doesn't exist
     cursor.execute("SELECT id FROM users WHERE LOWER(email) = %s", (email,))
     if not cursor.fetchone():
         cursor.execute(
-            "INSERT INTO users (email, display_name, role, tier) VALUES (%s, %s, %s, %s)",
+            "INSERT INTO users (email, display_name, role, tier, is_verified) VALUES (%s, %s, %s, %s, TRUE)",
             (email, req.get("name"), default_role_for_email(email), default_tier_for_email(email))
         )
+    else:
+        cursor.execute("UPDATE users SET is_verified = TRUE WHERE LOWER(email) = %s", (email,))
 
-    verify_token = generate_token()
-    cursor.execute("DELETE FROM verification_tokens WHERE email = %s", (email,))
+    magic_token = generate_token()
     cursor.execute(
-        "INSERT INTO verification_tokens (email, token, expires_at) VALUES (%s, %s, NOW() + INTERVAL '24 hours')",
-        (email, verify_token)
+        "INSERT INTO magic_links (email, token, poll_id, expires_at) VALUES (%s, %s, NULL, NOW() + INTERVAL '24 hours')",
+        (email, magic_token)
     )
     conn.commit()
     conn.close()
 
-    sent, error = send_verification_email(email, verify_token, request.url_root)
+    sent, error = send_magic_link_email(email, magic_token, None, request.url_root)
 
     if sent:
-        flash(f"Approved! Verification email sent to {email}.", "success")
+        flash(f"Approved! Sign-in link sent to {email}.", "success")
     else:
-        flash(f"Approved {email}, but the verification email failed to send: {error}", "error")
+        flash(f"Approved {email}, but the sign-in email failed to send: {error}", "error")
 
     return redirect(url_for("admin_panel"))
 
@@ -1740,27 +1733,23 @@ def profile():
                 (new_email, current_email)
             )
             cursor.execute(
-                "DELETE FROM verification_tokens WHERE email = %s",
-                (new_email,)
-            )
-            cursor.execute(
-                "INSERT INTO verification_tokens (email, token, expires_at) VALUES (%s, %s, NOW() + INTERVAL '24 hours')",
+                "INSERT INTO magic_links (email, token, poll_id, expires_at) VALUES (%s, %s, NULL, NOW() + INTERVAL '24 hours')",
                 (new_email, token)
             )
             conn.commit()
             conn.close()
 
-            sent, error = send_verification_email(new_email, token, request.url_root)
+            sent, error = send_magic_link_email(new_email, token, None, request.url_root)
             session.pop("user_email", None)
             session.pop("poll_name", None)
             session.pop("poll_creator_email", None)
 
             if sent:
-                flash("Email updated. Please verify your new email before signing in again.", "success")
+                flash("Email updated. Check your new inbox for a sign-in link.", "success")
             else:
-                flash("Email updated, but we could not send verification right now. Try signing in to resend.", "error")
+                flash("Email updated, but we could not send a sign-in link right now. Try signing in.", "error")
                 if error:
-                    print(f"ERROR: Verification email send failed for {new_email}: {error}")
+                    print(f"ERROR: Magic-link send failed for new email {new_email}: {error}")
             return redirect(url_for("login"))
 
         cursor.execute(
@@ -1841,7 +1830,6 @@ def logout():
     session.pop("user_email", None)
     session.pop("poll_name", None)
     session.pop("poll_creator_email", None)
-    session.pop("pending_verification_email", None)
     return redirect(url_for("login"))
 
 

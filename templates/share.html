@@ -12,30 +12,50 @@
                 </svg>
             </div>
             <h1 class="text-2xl font-bold text-gray-900 mb-2">Manage Poll Sharing</h1>
-            <p class="text-gray-600">Anyone with this link can open the poll. They'll be asked to sign in (or create an account) before voting.</p>
+            <p class="text-gray-600">Choose who can vote, then share the link.</p>
         </div>
 
         <div class="mb-6">
             <label class="block text-sm font-medium text-gray-700 mb-2">Poll Name</label>
-            <input 
+            <input
                 type="text"
                 id="poll-name"
                 value="{{ poll.name }}"
                 class="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
             >
         </div>
-        
+
+        <div class="mb-6">
+            <label class="block text-sm font-medium text-gray-700 mb-2">Who can vote?</label>
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <label class="flex items-start gap-3 p-3 border rounded-lg cursor-pointer hover:bg-gray-50 {% if poll.access_mode == 'public_link' %}border-indigo-500 bg-indigo-50{% else %}border-gray-200{% endif %}">
+                    <input type="radio" name="access_mode" value="public_link" {% if poll.access_mode == 'public_link' %}checked{% endif %} class="mt-1">
+                    <div>
+                        <div class="text-sm font-medium text-gray-900">Anyone with the link</div>
+                        <div class="text-xs text-gray-500 mt-0.5">Voters enter their email and get a one-click sign-in link. Best for public events.</div>
+                    </div>
+                </label>
+                <label class="flex items-start gap-3 p-3 border rounded-lg cursor-pointer hover:bg-gray-50 {% if poll.access_mode == 'invite_only' %}border-indigo-500 bg-indigo-50{% else %}border-gray-200{% endif %}">
+                    <input type="radio" name="access_mode" value="invite_only" {% if poll.access_mode == 'invite_only' %}checked{% endif %} class="mt-1">
+                    <div>
+                        <div class="text-sm font-medium text-gray-900">Invite only</div>
+                        <div class="text-xs text-gray-500 mt-0.5">Only emails on the invite list below can open and vote on this poll.</div>
+                    </div>
+                </label>
+            </div>
+        </div>
+
         <div class="mb-6">
             <label class="block text-sm font-medium text-gray-700 mb-2">Poll Link</label>
             <div class="flex gap-2">
-                <input 
-                    type="text" 
-                    id="poll-url" 
+                <input
+                    type="text"
+                    id="poll-url"
                     value="{{ poll_url }}"
                     readonly
                     class="flex-1 px-4 py-3 bg-gray-50 border border-gray-300 rounded-lg text-gray-700"
                 >
-                <button 
+                <button
                     onclick="copyUrl()"
                     class="bg-indigo-600 text-white py-3 px-6 rounded-lg font-medium hover:bg-indigo-700 transition-colors whitespace-nowrap"
                 >
@@ -44,32 +64,99 @@
             </div>
             <p id="copy-success" class="text-sm text-green-600 mt-2 hidden">Link copied to clipboard!</p>
         </div>
-        
+
         <div class="mb-6">
-            <label class="block text-sm font-medium text-gray-700 mb-2">Invite via Email (optional)</label>
-            <p class="text-xs text-gray-500 mb-2">Optional. Sharing the link is enough — adding emails here just lists everyone you've explicitly invited.</p>
+            <label class="block text-sm font-medium text-gray-700 mb-2">
+                Custom URL
+                {% if not is_paid %}<span class="ml-2 px-2 py-0.5 rounded-full text-xs bg-amber-100 text-amber-800 font-semibold">Pro</span>{% endif %}
+            </label>
+            <p class="text-xs text-gray-500 mb-2">Replace the random ID with something memorable, e.g. <code>{{ base_url }}/p/<strong>summer-bbq</strong></code>.</p>
+            <div class="flex gap-2 items-center">
+                <span class="text-sm text-gray-500">{{ base_url }}/p/</span>
+                <input
+                    type="text"
+                    id="poll-slug"
+                    value="{{ poll.slug or '' }}"
+                    placeholder="summer-bbq"
+                    pattern="[a-z0-9][a-z0-9-]{2,39}"
+                    {% if not is_paid %}disabled{% endif %}
+                    class="flex-1 px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 disabled:bg-gray-100 disabled:text-gray-400"
+                >
+            </div>
+            {% if not is_paid %}
+            <p class="text-xs text-amber-700 mt-1">Upgrade to Pro to set a custom URL.</p>
+            {% else %}
+            <p class="text-xs text-gray-500 mt-1">3-40 characters. Lowercase letters, numbers, and dashes only.</p>
+            {% endif %}
+        </div>
+
+        <div class="mb-6">
+            <label class="block text-sm font-medium text-gray-700 mb-2">Invite emails</label>
+            <p class="text-xs text-gray-500 mb-2">
+                {% if poll.access_mode == 'invite_only' %}
+                Required for this access mode. Only the emails listed here (plus you) can open and vote on this poll.
+                {% else %}
+                Optional. Listed for your reference; the link itself grants voting in this mode.
+                {% endif %}
+            </p>
             <textarea
                 id="invite-emails"
                 rows="4"
                 class="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
                 placeholder="Enter email addresses, one per line or comma-separated..."
             >{{ poll.invite_emails or '' }}</textarea>
-            <button 
+            <p id="invite-error" class="text-xs text-red-600 mt-1 hidden"></p>
+            <button
                 onclick="savePollSettings()"
-                class="mt-2 text-sm text-indigo-600 hover:text-indigo-700"
+                id="save-btn"
+                class="mt-3 bg-indigo-600 text-white py-2 px-4 rounded-lg text-sm font-medium hover:bg-indigo-700"
             >
                 Save sharing settings
             </button>
         </div>
-        
+
+        {% if invitee_status %}
+        <div class="mb-6">
+            <h3 class="text-sm font-medium text-gray-700 mb-2">Invitee status</h3>
+            <div class="rounded-lg border border-gray-200 overflow-hidden">
+                <table class="min-w-full text-sm">
+                    <thead class="bg-gray-50 text-xs uppercase tracking-wide text-gray-500">
+                        <tr>
+                            <th class="px-3 py-2 text-left">Email</th>
+                            <th class="px-3 py-2 text-left">Voted?</th>
+                            <th class="px-3 py-2 text-left">Last vote</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for inv in invitee_status %}
+                        <tr class="border-t border-gray-100">
+                            <td class="px-3 py-2 text-gray-700">{{ inv.email }}</td>
+                            <td class="px-3 py-2">
+                                {% if inv.voted %}
+                                <span class="px-2 py-0.5 rounded-full text-xs bg-green-100 text-green-700">Yes</span>
+                                {% else %}
+                                <span class="px-2 py-0.5 rounded-full text-xs bg-gray-100 text-gray-600">Not yet</span>
+                                {% endif %}
+                            </td>
+                            <td class="px-3 py-2 text-gray-500">
+                                {% if inv.last_status %}{{ inv.last_status }}{% else %}—{% endif %}
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+        {% endif %}
+
         <div class="flex gap-4">
-            <a 
+            <a
                 href="{{ url_for('view_poll', poll_id=poll.id) }}"
                 class="flex-1 bg-indigo-600 text-white py-3 px-4 rounded-lg font-medium hover:bg-indigo-700 transition-colors text-center"
             >
                 View Poll
             </a>
-            <a 
+            <a
                 href="/create"
                 class="flex-1 bg-gray-100 text-gray-700 py-3 px-4 rounded-lg font-medium hover:bg-gray-200 transition-colors text-center"
             >
@@ -84,31 +171,63 @@
         const urlInput = document.getElementById('poll-url');
         urlInput.select();
         document.execCommand('copy');
-        
+
         const successMsg = document.getElementById('copy-success');
         successMsg.classList.remove('hidden');
         setTimeout(() => successMsg.classList.add('hidden'), 3000);
     }
-    
-    async function savePollSettings() {
-        const emails = document.getElementById('invite-emails').value;
-        const name = document.getElementById('poll-name').value.trim();
-        
-        const response = await fetch('/share/{{ poll.id }}/update-emails', {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json'
-            },
-            body: JSON.stringify({ emails, name })
-        });
 
-        const data = await response.json();
-        if (!response.ok || data.error) {
-            alert(data.error || 'Failed to save sharing settings.');
-            return;
+    function validInvitesOrError() {
+        const errEl = document.getElementById('invite-error');
+        const raw = document.getElementById('invite-emails').value;
+        const items = raw.split(/[\n,]/).map(s => s.trim()).filter(Boolean);
+        const re = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+        const bad = items.filter(s => !re.test(s));
+        if (bad.length) {
+            errEl.textContent = 'Some entries don’t look like valid emails: ' + bad.join(', ');
+            errEl.classList.remove('hidden');
+            return null;
+        }
+        errEl.classList.add('hidden');
+        return items.join('\n');
+    }
+
+    async function savePollSettings() {
+        const cleanedEmails = validInvitesOrError();
+        if (cleanedEmails === null) return;
+        const name = document.getElementById('poll-name').value.trim();
+        const accessMode = document.querySelector('input[name="access_mode"]:checked').value;
+        const slugEl = document.getElementById('poll-slug');
+        const slug = slugEl && !slugEl.disabled ? slugEl.value.trim().toLowerCase() : null;
+
+        if (accessMode === 'invite_only' && !cleanedEmails.length) {
+            const proceed = confirm('Invite-only mode with an empty invite list will lock everyone except you out of this poll. Continue?');
+            if (!proceed) return;
         }
 
-        alert(`Sharing settings saved (${data.invite_count || 0} invitees).`);
+        const btn = document.getElementById('save-btn');
+        btn.disabled = true;
+        btn.textContent = 'Saving…';
+        try {
+            const body = { emails: cleanedEmails, name, access_mode: accessMode };
+            if (slug !== null) body.slug = slug;
+
+            const response = await fetch('/share/{{ poll.id }}/update-emails', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(body)
+            });
+
+            const data = await response.json();
+            if (!response.ok || data.error) {
+                alert(data.error || 'Failed to save sharing settings.');
+                return;
+            }
+            window.location.reload();
+        } finally {
+            btn.disabled = false;
+            btn.textContent = 'Save sharing settings';
+        }
     }
 </script>
 {% endblock %}

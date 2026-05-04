@@ -42,11 +42,11 @@
             {% if not user_email %}
             <div class="mb-4 p-4 rounded-lg bg-indigo-50 border border-indigo-100 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
                 <div>
-                    <p class="text-sm font-medium text-indigo-900">Sign in to vote on these dates.</p>
-                    <p class="text-xs text-indigo-700 mt-0.5">Want to run your own polls? <a href="/request-account?poll={{ poll.id }}" class="underline hover:text-indigo-900">Create an account</a>.</p>
+                    <p class="text-sm font-medium text-indigo-900">Enter your email to vote — no password needed.</p>
+                    <p class="text-xs text-indigo-700 mt-0.5">We'll email you a one-click sign-in link. Want to run your own polls? <a href="/request-account?poll={{ poll.id }}" class="underline hover:text-indigo-900">Request an account</a>.</p>
                 </div>
                 <a href="/poll/{{ poll.id }}/access" class="inline-flex items-center justify-center bg-indigo-600 text-white py-2 px-4 rounded-lg text-sm font-medium hover:bg-indigo-700 transition-colors whitespace-nowrap">
-                    Sign in
+                    Get sign-in link
                 </a>
             </div>
             {% endif %}
