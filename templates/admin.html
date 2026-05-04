@@ -230,9 +230,20 @@
                             </select>
                         </td>
                         <td class="py-3">
-                            <form id="{{ form_id }}" action="/admin/users/{{ user.email }}/update" method="POST">
-                                <button type="submit" class="bg-indigo-600 text-white px-3 py-1.5 rounded hover:bg-indigo-700">Save</button>
-                            </form>
+                            <div class="flex flex-wrap gap-2 items-center">
+                                <form id="{{ form_id }}" action="/admin/users/{{ user.email }}/update" method="POST">
+                                    <button type="submit" class="bg-indigo-600 text-white px-3 py-1.5 rounded hover:bg-indigo-700">Save</button>
+                                </form>
+                                <form action="/admin/users/{{ user.email }}/send-magic-link" method="POST" class="flex gap-1 items-center">
+                                    <select name="poll_id" class="px-2 py-1 border border-gray-300 rounded text-xs">
+                                        <option value="">No poll (dashboard)</option>
+                                        {% for p in polls %}
+                                        <option value="{{ p.id }}">{{ p.name }}</option>
+                                        {% endfor %}
+                                    </select>
+                                    <button type="submit" class="bg-amber-100 text-amber-800 px-3 py-1.5 rounded hover:bg-amber-200 font-medium" title="Email this user a one-click sign-in link (works even without a password).">Send sign-in link</button>
+                                </form>
+                            </div>
                         </td>
                     </tr>
                     {% endfor %}

@@ -309,20 +309,31 @@ def send_admin_request_notification(requester_email, requester_name, reason, app
 
 def send_magic_link_email(to_email, token, poll, request_url_root):
     magic_url = request_url_root.rstrip("/") + url_for("magic_login", token=token)
-    poll_name = (poll.get("name") if poll else None) or "your poll"
-    inviter_name = get_name(poll.get("admin_email")) if poll else ""
-    inviter_line = f"<p>{inviter_name} invited you to vote on dates for <strong>{poll_name}</strong>.</p>" if inviter_name else f"<p>You've been invited to vote on dates for <strong>{poll_name}</strong>.</p>"
+
+    if poll:
+        poll_name = poll.get("name") or "your poll"
+        inviter_name = get_name(poll.get("admin_email"))
+        inviter_line = (
+            f"<p>{inviter_name} invited you to vote on dates for <strong>{poll_name}</strong>.</p>"
+            if inviter_name
+            else f"<p>You've been invited to vote on dates for <strong>{poll_name}</strong>.</p>"
+        )
+        cta = "Open Poll"
+        subject = f"Your sign-in link for {poll_name}"
+    else:
+        inviter_line = "<p>An admin sent you a one-click sign-in link for Templo. No password needed.</p>"
+        cta = "Sign in to Templo"
+        subject = "Your sign-in link for Templo"
 
     html_body = f"""
         <h2>Sign in to Templo</h2>
         {inviter_line}
-        <p>Click the button below to open the poll. No password needed.</p>
-        <p><a href="{magic_url}" style="background-color: #4F46E5; color: white; padding: 12px 24px; text-decoration: none; border-radius: 8px; display: inline-block;">Open Poll</a></p>
+        <p><a href="{magic_url}" style="background-color: #4F46E5; color: white; padding: 12px 24px; text-decoration: none; border-radius: 8px; display: inline-block;">{cta}</a></p>
         <p>Or copy this link: {magic_url}</p>
         <p>This link expires in 24 hours and can only be used once.</p>
         <p style="color: #6b7280; font-size: 14px; margin-top: 20px;">Templo: templobooker.com</p>
     """
-    return send_email(to_email, f"Your sign-in link for {poll_name}", html_body)
+    return send_email(to_email, subject, html_body)
 
 
 def get_current_user():
@@ -1375,6 +1386,51 @@ def admin_delete_poll(poll_id):
     conn.close()
 
     flash("Poll deleted.", "success")
+    return redirect(url_for("admin_panel"))
+
+
+@app.route("/admin/users/<path:target_email>/send-magic-link", methods=["POST"])
+def admin_send_magic_link(target_email):
+    current_user = get_current_user()
+    if not is_admin_user(current_user):
+        flash("Admin access required.", "error")
+        return redirect(url_for("dashboard"))
+
+    email = normalize_email(target_email)
+    if not email or "@" not in email:
+        flash("Invalid email.", "error")
+        return redirect(url_for("admin_panel"))
+
+    poll_id = (request.form.get("poll_id") or "").strip() or None
+    poll = None
+
+    conn = get_db()
+    cursor = conn.cursor(cursor_factory=RealDictCursor)
+
+    cursor.execute("SELECT id FROM users WHERE LOWER(email) = %s", (email,))
+    if not cursor.fetchone():
+        cursor.execute(
+            "INSERT INTO users (email, role, tier, is_verified) VALUES (%s, %s, %s, FALSE)",
+            (email, default_role_for_email(email), default_tier_for_email(email))
+        )
+
+    if poll_id:
+        cursor.execute("SELECT * FROM polls WHERE id = %s", (poll_id,))
+        poll = cursor.fetchone()
+
+    token = generate_token()
+    cursor.execute(
+        "INSERT INTO magic_links (email, token, poll_id, expires_at) VALUES (%s, %s, %s, NOW() + INTERVAL '24 hours')",
+        (email, token, poll_id)
+    )
+    conn.commit()
+    conn.close()
+
+    sent, error = send_magic_link_email(email, token, poll, request.url_root)
+    if sent:
+        flash(f"Sign-in link sent to {email}.", "success")
+    else:
+        flash(f"Could not send sign-in link to {email}: {error}", "error")
     return redirect(url_for("admin_panel"))
 
 
