@@ -210,11 +210,10 @@
                             <div class="text-xs text-gray-500">{{ user.email }}</div>
                         </td>
                         <td class="py-3 pr-4">
-                            {% if user.is_verified %}
-                            <span class="px-2 py-1 rounded-full text-xs bg-green-100 text-green-700">Yes</span>
-                            {% else %}
-                            <span class="px-2 py-1 rounded-full text-xs bg-gray-100 text-gray-600">No</span>
-                            {% endif %}
+                            <label class="inline-flex items-center gap-2 cursor-pointer">
+                                <input type="checkbox" name="is_verified" form="{{ form_id }}" {% if user.is_verified %}checked{% endif %} class="rounded">
+                                <span class="text-xs {% if user.is_verified %}text-green-700{% else %}text-gray-500{% endif %}">{% if user.is_verified %}Yes{% else %}No{% endif %}</span>
+                            </label>
                         </td>
                         <td class="py-3 pr-4">{{ user.owned_poll_count }}</td>
                         <td class="py-3 pr-4">

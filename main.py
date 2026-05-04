@@ -1318,6 +1318,7 @@ def admin_update_user(target_email):
     target_email = normalize_email(target_email)
     role = (request.form.get("role") or "").strip().lower()
     tier = (request.form.get("tier") or "").strip().lower()
+    is_verified = request.form.get("is_verified") == "on"
 
     if role not in VALID_ROLES or tier not in VALID_TIERS:
         flash("Invalid role or tier selection.", "error")
@@ -1325,10 +1326,12 @@ def admin_update_user(target_email):
 
     if role == "admin":
         tier = "paid"
+        is_verified = True
 
     if target_email in ADMIN_EMAILS:
         role = "admin"
         tier = "paid"
+        is_verified = True
 
     conn = get_db()
     cursor = conn.cursor(cursor_factory=RealDictCursor)
@@ -1344,8 +1347,8 @@ def admin_update_user(target_email):
             return redirect(url_for("admin_panel"))
 
     cursor.execute(
-        "UPDATE users SET role = %s, tier = %s WHERE LOWER(email) = %s",
-        (role, tier, target_email)
+        "UPDATE users SET role = %s, tier = %s, is_verified = %s WHERE LOWER(email) = %s",
+        (role, tier, is_verified, target_email)
     )
     if cursor.rowcount == 0:
         conn.close()
