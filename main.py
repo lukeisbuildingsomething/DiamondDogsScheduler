@@ -20,8 +20,116 @@ if not app.secret_key:
     raise RuntimeError("SESSION_SECRET environment variable is required")
 
 DATABASE_URL = os.environ.get("DATABASE_URL")
-RESEND_API_KEY = os.environ.get("RESEND_API_KEY")
-RESEND_FROM_EMAIL = os.environ.get("RESEND_FROM_EMAIL", "Templo <noreply@templobooker.com>")
+
+MAILERSEND_API_URL = "https://api.mailersend.com/v1/email"
+MAILERSEND_DOMAINS_URL = "https://api.mailersend.com/v1/domains"
+
+DEFAULT_MAIL_FROM_EMAIL = "noreply@templobooker.com"
+DEFAULT_MAIL_FROM_NAME = "Templo"
+
+
+def get_setting(key, default=None):
+    try:
+        conn = get_db()
+        cursor = conn.cursor()
+        cursor.execute("SELECT value FROM app_settings WHERE key = %s", (key,))
+        row = cursor.fetchone()
+        conn.close()
+        if row and row[0] is not None:
+            return row[0]
+    except Exception as e:
+        print(f"ERROR: get_setting({key}) failed: {e}")
+    return default
+
+
+def set_setting(key, value):
+    conn = get_db()
+    cursor = conn.cursor()
+    cursor.execute(
+        '''INSERT INTO app_settings (key, value, updated_at) VALUES (%s, %s, NOW())
+           ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = NOW()''',
+        (key, value)
+    )
+    conn.commit()
+    conn.close()
+
+
+def get_mail_from():
+    name = get_setting("mail_from_name") or DEFAULT_MAIL_FROM_NAME
+    email = get_setting("mail_from_email") or DEFAULT_MAIL_FROM_EMAIL
+    return name, email
+
+
+def send_email(to_email, subject, html_body, reply_to=None):
+    api_key = get_setting("mailersend_api_key")
+    if not api_key:
+        msg = "MailerSend API key not configured (set it in Admin → Email)"
+        print(f"ERROR: {msg}")
+        return False, msg
+
+    from_name, from_email = get_mail_from()
+    payload = {
+        "from": {"email": from_email, "name": from_name},
+        "to": [{"email": to_email}],
+        "subject": subject,
+        "html": html_body,
+    }
+    if reply_to:
+        payload["reply_to"] = {"email": reply_to}
+
+    try:
+        response = requests.post(
+            MAILERSEND_API_URL,
+            headers={
+                "Authorization": f"Bearer {api_key}",
+                "Content-Type": "application/json",
+                "Accept": "application/json",
+            },
+            json=payload,
+            timeout=10,
+        )
+        if response.status_code in (200, 202):
+            return True, None
+        error_summary = f"MailerSend rejected send (status={response.status_code}): {response.text[:300]}"
+        print(f"ERROR: {error_summary}")
+        return False, error_summary
+    except Exception as e:
+        print(f"ERROR: Failed to send email via MailerSend: {e}")
+        return False, str(e)
+
+
+def check_mailersend_status(api_key=None):
+    api_key = api_key or get_setting("mailersend_api_key")
+    if not api_key:
+        return {"ok": False, "configured": False, "message": "API key not set"}
+    try:
+        response = requests.get(
+            MAILERSEND_DOMAINS_URL,
+            headers={
+                "Authorization": f"Bearer {api_key}",
+                "Accept": "application/json",
+            },
+            timeout=10,
+        )
+        if response.status_code == 200:
+            try:
+                data = response.json()
+                domains = data.get("data", [])
+                verified = [d for d in domains if d.get("domain_settings", {}).get("verification_approved") or d.get("is_verified")]
+                return {
+                    "ok": True,
+                    "configured": True,
+                    "message": f"Connected. {len(verified)} verified domain(s) of {len(domains)}.",
+                    "domain_count": len(domains),
+                    "verified_count": len(verified),
+                }
+            except ValueError:
+                return {"ok": True, "configured": True, "message": "Connected."}
+        if response.status_code == 401:
+            return {"ok": False, "configured": True, "message": "Invalid API key (401)."}
+        return {"ok": False, "configured": True, "message": f"MailerSend returned {response.status_code}: {response.text[:200]}"}
+    except Exception as e:
+        return {"ok": False, "configured": True, "message": f"Connection error: {e}"}
 
 UPLOAD_DIR = Path(app.static_folder) / "uploads" / "profile-photos"
 UPLOAD_URL_PREFIX = "uploads/profile-photos"
@@ -161,134 +269,51 @@ def generate_token():
 
 
 def send_verification_email(to_email, token, request_url_root):
-    if not RESEND_API_KEY:
-        print("ERROR: Resend not configured - missing RESEND_API_KEY")
-        return False, "Missing RESEND_API_KEY"
-    
     verify_url = request_url_root.rstrip("/") + url_for("verify_email", token=token)
-
-    email_payload = {
-        "from": RESEND_FROM_EMAIL,
-        "to": [to_email],
-        "subject": "Verify your Templo account",
-        "html": f"""
+    html_body = f"""
         <h2>Welcome to Templo!</h2>
         <p>Click the link below to verify your email and set up your password:</p>
         <p><a href="{verify_url}" style="background-color: #4F46E5; color: white; padding: 12px 24px; text-decoration: none; border-radius: 8px; display: inline-block;">Verify Email</a></p>
         <p>Or copy this link: {verify_url}</p>
         <p>Templo: templobooker.com</p>
         <p>This link expires in 24 hours.</p>
-        """
-    }
-    
-    try:
-        response = requests.post(
-            "https://api.resend.com/emails",
-            headers={
-                "Authorization": f"Bearer {RESEND_API_KEY}",
-                "Content-Type": "application/json"
-            },
-            json=email_payload,
-            timeout=10
-        )
-
-        if response.status_code == 403 and "domain is not verified" in response.text:
-            email_payload["from"] = "onboarding@resend.dev"
-            response = requests.post(
-                "https://api.resend.com/emails",
-                headers={
-                    "Authorization": f"Bearer {RESEND_API_KEY}",
-                    "Content-Type": "application/json"
-                },
-                json=email_payload,
-                timeout=10
-            )
-
-        if response.status_code in (200, 201):
-            return True, None
-
-        error_summary = f"Resend rejected send (status={response.status_code}): {response.text[:300]}"
-        print(f"ERROR: {error_summary}")
-        return False, error_summary
-    except Exception as e:
-        print(f"ERROR: Failed to send email: {e}")
-        return False, str(e)
+    """
+    return send_email(to_email, "Verify your Templo account", html_body)
 
 
 def send_admin_request_notification(requester_email, requester_name, reason, approval_token, request_url_root):
-    if not RESEND_API_KEY:
-        print("ERROR: Resend not configured - missing RESEND_API_KEY")
-        return False
-
     approve_url = request_url_root.rstrip("/") + url_for("approve_request_via_email", token=approval_token)
     admin_url = request_url_root.rstrip("/") + url_for("admin_panel")
     display_name = requester_name or requester_email.split("@")[0]
     reason_html = f"<p><strong>Reason:</strong> {reason}</p>" if reason else ""
 
+    html_body = f"""
+        <h2>New Account Request</h2>
+        <p><strong>Email:</strong> {requester_email}</p>
+        <p><strong>Name:</strong> {display_name}</p>
+        {reason_html}
+        <p style="margin-top: 20px;">
+            <a href="{approve_url}" style="background-color: #16a34a; color: white; padding: 12px 24px; text-decoration: none; border-radius: 8px; display: inline-block; font-weight: bold;">Approve Request</a>
+        </p>
+        <p style="margin-top: 12px;">Or manage all requests in the <a href="{admin_url}">Admin Panel</a>.</p>
+        <p style="color: #6b7280; font-size: 14px; margin-top: 20px;">Templo: templobooker.com</p>
+    """
+
     for admin_email in ADMIN_EMAILS:
-        email_payload = {
-            "from": RESEND_FROM_EMAIL,
-            "to": [admin_email],
-            "subject": f"New account request from {display_name}",
-            "html": f"""
-            <h2>New Account Request</h2>
-            <p><strong>Email:</strong> {requester_email}</p>
-            <p><strong>Name:</strong> {display_name}</p>
-            {reason_html}
-            <p style="margin-top: 20px;">
-                <a href="{approve_url}" style="background-color: #16a34a; color: white; padding: 12px 24px; text-decoration: none; border-radius: 8px; display: inline-block; font-weight: bold;">Approve Request</a>
-            </p>
-            <p style="margin-top: 12px;">Or manage all requests in the <a href="{admin_url}">Admin Panel</a>.</p>
-            <p style="color: #6b7280; font-size: 14px; margin-top: 20px;">Templo: templobooker.com</p>
-            """
-        }
-
-        try:
-            response = requests.post(
-                "https://api.resend.com/emails",
-                headers={
-                    "Authorization": f"Bearer {RESEND_API_KEY}",
-                    "Content-Type": "application/json"
-                },
-                json=email_payload,
-                timeout=10
-            )
-
-            if response.status_code == 403 and "domain is not verified" in response.text:
-                email_payload["from"] = "onboarding@resend.dev"
-                response = requests.post(
-                    "https://api.resend.com/emails",
-                    headers={
-                        "Authorization": f"Bearer {RESEND_API_KEY}",
-                        "Content-Type": "application/json"
-                    },
-                    json=email_payload,
-                    timeout=10
-                )
-
-            if response.status_code not in (200, 201):
-                print(f"ERROR: Failed to notify admin {admin_email}: {response.text[:300]}")
-        except Exception as e:
-            print(f"ERROR: Failed to notify admin {admin_email}: {e}")
+        sent, error = send_email(admin_email, f"New account request from {display_name}", html_body)
+        if not sent:
+            print(f"ERROR: Failed to notify admin {admin_email}: {error}")
 
     return True
 
 
 def send_magic_link_email(to_email, token, poll, request_url_root):
-    if not RESEND_API_KEY:
-        print("ERROR: Resend not configured - missing RESEND_API_KEY")
-        return False, "Missing RESEND_API_KEY"
-
     magic_url = request_url_root.rstrip("/") + url_for("magic_login", token=token)
     poll_name = (poll.get("name") if poll else None) or "your poll"
     inviter_name = get_name(poll.get("admin_email")) if poll else ""
     inviter_line = f"<p>{inviter_name} invited you to vote on dates for <strong>{poll_name}</strong>.</p>" if inviter_name else f"<p>You've been invited to vote on dates for <strong>{poll_name}</strong>.</p>"
 
-    email_payload = {
-        "from": RESEND_FROM_EMAIL,
-        "to": [to_email],
-        "subject": f"Your sign-in link for {poll_name}",
-        "html": f"""
+    html_body = f"""
         <h2>Sign in to Templo</h2>
         {inviter_line}
         <p>Click the button below to open the poll. No password needed.</p>
@@ -296,41 +321,8 @@ def send_magic_link_email(to_email, token, poll, request_url_root):
         <p>Or copy this link: {magic_url}</p>
         <p>This link expires in 24 hours and can only be used once.</p>
         <p style="color: #6b7280; font-size: 14px; margin-top: 20px;">Templo: templobooker.com</p>
-        """
-    }
-
-    try:
-        response = requests.post(
-            "https://api.resend.com/emails",
-            headers={
-                "Authorization": f"Bearer {RESEND_API_KEY}",
-                "Content-Type": "application/json"
-            },
-            json=email_payload,
-            timeout=10
-        )
-
-        if response.status_code == 403 and "domain is not verified" in response.text:
-            email_payload["from"] = "onboarding@resend.dev"
-            response = requests.post(
-                "https://api.resend.com/emails",
-                headers={
-                    "Authorization": f"Bearer {RESEND_API_KEY}",
-                    "Content-Type": "application/json"
-                },
-                json=email_payload,
-                timeout=10
-            )
-
-        if response.status_code in (200, 201):
-            return True, None
-
-        error_summary = f"Resend rejected send (status={response.status_code}): {response.text[:300]}"
-        print(f"ERROR: {error_summary}")
-        return False, error_summary
-    except Exception as e:
-        print(f"ERROR: Failed to send magic link email: {e}")
-        return False, str(e)
+    """
+    return send_email(to_email, f"Your sign-in link for {poll_name}", html_body)
 
 
 def get_current_user():
@@ -513,6 +505,14 @@ def init_db():
             expires_at TIMESTAMP NOT NULL,
             used_at TIMESTAMP,
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    ''')
+
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS app_settings (
+            key TEXT PRIMARY KEY,
+            value TEXT,
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )
     ''')
 
@@ -1283,7 +1283,23 @@ def admin_panel():
 
     pending_count = sum(1 for r in account_requests if r["status"] == "pending")
 
-    return render_template("admin.html", users=users, polls=polls, account_requests=account_requests, pending_count=pending_count)
+    mailersend_key = get_setting("mailersend_api_key") or ""
+    mailersend_key_masked = (mailersend_key[:6] + "…" + mailersend_key[-4:]) if len(mailersend_key) > 12 else ""
+    mail_from_name, mail_from_email = get_mail_from()
+    mail_status = check_mailersend_status(mailersend_key) if mailersend_key else {"ok": False, "configured": False, "message": "Not configured"}
+
+    return render_template(
+        "admin.html",
+        users=users,
+        polls=polls,
+        account_requests=account_requests,
+        pending_count=pending_count,
+        mail_status=mail_status,
+        mailersend_key_masked=mailersend_key_masked,
+        mailersend_key_set=bool(mailersend_key),
+        mail_from_name=mail_from_name,
+        mail_from_email=mail_from_email,
+    )
 
 
 @app.route("/admin/users/<path:target_email>/update", methods=["POST"])
@@ -1360,6 +1376,48 @@ def admin_delete_poll(poll_id):
 
     flash("Poll deleted.", "success")
     return redirect(url_for("admin_panel"))
+
+
+@app.route("/admin/email/save", methods=["POST"])
+def admin_save_email_settings():
+    current_user = get_current_user()
+    if not is_admin_user(current_user):
+        flash("Admin access required.", "error")
+        return redirect(url_for("dashboard"))
+
+    api_key = (request.form.get("mailersend_api_key") or "").strip()
+    from_name = (request.form.get("mail_from_name") or "").strip()
+    from_email = normalize_email(request.form.get("mail_from_email", ""))
+
+    if api_key:
+        set_setting("mailersend_api_key", api_key)
+    if from_name:
+        set_setting("mail_from_name", from_name)
+    if from_email:
+        set_setting("mail_from_email", from_email)
+
+    flash("Email settings saved.", "success")
+    return redirect(url_for("admin_panel") + "#email-settings")
+
+
+@app.route("/admin/email/clear", methods=["POST"])
+def admin_clear_email_key():
+    current_user = get_current_user()
+    if not is_admin_user(current_user):
+        flash("Admin access required.", "error")
+        return redirect(url_for("dashboard"))
+    set_setting("mailersend_api_key", "")
+    flash("MailerSend API key cleared.", "success")
+    return redirect(url_for("admin_panel") + "#email-settings")
+
+
+@app.route("/admin/email/test", methods=["POST"])
+def admin_test_email():
+    current_user = get_current_user()
+    if not is_admin_user(current_user):
+        return jsonify({"ok": False, "message": "Admin access required."}), 403
+    status = check_mailersend_status()
+    return jsonify(status)
 
 
 @app.route("/request-account", methods=["GET", "POST"])
@@ -1765,48 +1823,25 @@ def marketing_contact():
             flash("Please fill in all required fields.", "error")
             return redirect(url_for("marketing_contact"))
 
-        # Send to admin(s) via Resend
-        if RESEND_API_KEY:
-            for admin_email in ADMIN_EMAILS:
-                email_payload = {
-                    "from": RESEND_FROM_EMAIL,
-                    "to": [admin_email],
-                    "reply_to": email,
-                    "subject": f"[Templo Contact] {subject} — from {name}",
-                    "html": f"""
-                    <h2>New Contact Form Submission</h2>
-                    <p><strong>Name:</strong> {name}</p>
-                    <p><strong>Email:</strong> {email}</p>
-                    <p><strong>Subject:</strong> {subject}</p>
-                    <hr>
-                    <p>{message.replace(chr(10), '<br>')}</p>
-                    <hr>
-                    <p style="color: #6b7280; font-size: 14px;">Sent from the Templo contact form at templobooker.com</p>
-                    """
-                }
-                try:
-                    resp = requests.post(
-                        "https://api.resend.com/emails",
-                        headers={
-                            "Authorization": f"Bearer {RESEND_API_KEY}",
-                            "Content-Type": "application/json"
-                        },
-                        json=email_payload,
-                        timeout=10
-                    )
-                    if resp.status_code == 403 and "domain is not verified" in resp.text:
-                        email_payload["from"] = "onboarding@resend.dev"
-                        requests.post(
-                            "https://api.resend.com/emails",
-                            headers={
-                                "Authorization": f"Bearer {RESEND_API_KEY}",
-                                "Content-Type": "application/json"
-                            },
-                            json=email_payload,
-                            timeout=10
-                        )
-                except Exception as e:
-                    print(f"ERROR: Failed to send contact form email: {e}")
+        html_body = f"""
+            <h2>New Contact Form Submission</h2>
+            <p><strong>Name:</strong> {name}</p>
+            <p><strong>Email:</strong> {email}</p>
+            <p><strong>Subject:</strong> {subject}</p>
+            <hr>
+            <p>{message.replace(chr(10), '<br>')}</p>
+            <hr>
+            <p style="color: #6b7280; font-size: 14px;">Sent from the Templo contact form at templobooker.com</p>
+        """
+        for admin_email in ADMIN_EMAILS:
+            sent, error = send_email(
+                admin_email,
+                f"[Templo Contact] {subject} — from {name}",
+                html_body,
+                reply_to=email,
+            )
+            if not sent:
+                print(f"ERROR: Failed to send contact form email to {admin_email}: {error}")
 
         flash("Message sent! We'll get back to you soon.", "success")
         return redirect(url_for("marketing_contact"))
