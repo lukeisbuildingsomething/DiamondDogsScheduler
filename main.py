@@ -94,9 +94,45 @@ def send_email(to_email, subject, html_body, reply_to=None):
         error_summary = f"MailerSend rejected send (status={response.status_code}): {response.text[:300]}"
         print(f"ERROR: {error_summary}")
         return False, error_summary
+    except requests.Timeout as e:
+        print(f"ERROR: MailerSend request timed out: {e}")
+        return False, f"Request to MailerSend timed out: {e}"
     except Exception as e:
         print(f"ERROR: Failed to send email via MailerSend: {e}")
         return False, str(e)
+
+
+def classify_email_error(error):
+    """Map a send_email() error string to (code, user_message).
+
+    Codes are stable identifiers a user can quote to support; messages are
+    safe to show end users (no API tokens, no full provider response bodies).
+    """
+    if not error:
+        return "E000", "Unknown email error."
+    err = error.lower()
+    if "api key not configured" in err:
+        return "E001", "Email service is not configured yet. Please contact the site admin."
+    if "status=401" in err or "invalid api key" in err:
+        return "E002", "Email service authentication failed. Please contact the site admin."
+    if "ms42225" in err or "trial account unique recipients" in err:
+        return "E003", "Email service trial limit reached. Please contact the site admin."
+    if "ms42207" in err or "recipient" in err and "block" in err:
+        return "E004", "This address is on the email service's block list. Try a different address or contact the site admin."
+    if "status=422" in err:
+        return "E005", "Email service rejected this address. Double-check it and try again."
+    if "status=429" in err:
+        return "E006", "Email service is rate-limiting us. Please try again in a minute."
+    if "timed out" in err or "timeout" in err:
+        return "E007", "Email service timed out. Please try again."
+    if re.search(r"status=5\d\d", err):
+        return "E008", "Email service is temporarily unavailable. Please try again in a few minutes."
+    return "E099", "Email service returned an unexpected error."
+
+
+def email_error_flash(error, fallback_action="Please try again in a minute."):
+    code, msg = classify_email_error(error)
+    return f"We couldn't send your sign-in email ({code}). {msg} {fallback_action}".strip()
 
 
 def check_mailersend_status(api_key=None):
@@ -621,7 +657,7 @@ def login():
         if sent:
             flash(f"Check your inbox — we've sent a sign-in link to {email}.", "success")
         else:
-            flash("We couldn't send your sign-in email right now. Please try again in a minute.", "error")
+            flash(email_error_flash(error), "error")
             if error:
                 print(f"ERROR: Login magic-link send failed for {email}: {error}")
         return redirect(url_for("login"))
@@ -1029,7 +1065,7 @@ def poll_access(poll_id):
         if sent:
             flash(f"Check your inbox — we've sent a sign-in link to {email}.", "success")
         else:
-            flash("We couldn't send your sign-in email right now. Please try again in a minute.", "error")
+            flash(email_error_flash(error), "error")
             if error:
                 print(f"ERROR: Magic link send failed for {email}: {error}")
         return redirect(url_for("poll_access", poll_id=poll_id))
@@ -1759,7 +1795,8 @@ def profile():
             if sent:
                 flash("Email updated. Check your new inbox for a sign-in link.", "success")
             else:
-                flash("Email updated, but we could not send a sign-in link right now. Try signing in.", "error")
+                code, msg = classify_email_error(error)
+                flash(f"Email updated, but we couldn't send a sign-in link ({code}). {msg} Try signing in.", "error")
                 if error:
                     print(f"ERROR: Magic-link send failed for new email {new_email}: {error}")
             return redirect(url_for("login"))
