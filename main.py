@@ -160,11 +160,11 @@ def _parse_hhmm(value):
     return int(m.group(1)), int(m.group(2))
 
 
-def event_time_label(date_row):
-    """Human-readable time label for a date row, e.g. '2026-05-15 (all day)' or '2026-05-15, 14:00–15:30'."""
+def event_time_label(poll, date_row):
+    """Human-readable time label, e.g. '2026-05-15 (all day)' or '2026-05-15, 14:00–15:30'."""
     date_str = date_row.get("date") or ""
-    start = date_row.get("start_time")
-    end = date_row.get("end_time")
+    start = poll.get("event_start_time") if poll else None
+    end = poll.get("event_end_time") if poll else None
     if start and end:
         return f"{date_str}, {start}–{end}"
     return f"{date_str} (all day)"
@@ -173,14 +173,14 @@ def event_time_label(date_row):
 def generate_ics(poll, date_row, attendees, organizer_email, organizer_name):
     """Build an RFC 5545 VCALENDAR string for a date row.
 
-    If date_row has start_time + end_time (HH:MM), emits a timed event in
-    floating time (no TZ — viewers interpret in their local clock).
-    Otherwise emits an all-day event.
+    Times are sourced from poll.event_start_time / poll.event_end_time
+    (HH:MM). When both are set, emits a timed floating-time event;
+    otherwise an all-day event.
     """
     parts = [int(p) for p in date_row["date"].split("-")]
     day = _date(parts[0], parts[1], parts[2])
-    start_hhmm = _parse_hhmm(date_row.get("start_time"))
-    end_hhmm = _parse_hhmm(date_row.get("end_time"))
+    start_hhmm = _parse_hhmm(poll.get("event_start_time"))
+    end_hhmm = _parse_hhmm(poll.get("event_end_time"))
     dtstamp = datetime.utcnow().strftime("%Y%m%dT%H%M%SZ")
     uid = f"{poll['id']}-{date_row['id']}@templobooker.com"
 
@@ -245,7 +245,7 @@ def build_ai_calendar_prompt(poll, final_dates, attendees, organizer_email):
     lines.append("")
     lines.append("**Events:**")
     for d in final_dates:
-        lines.append(f"- {event_time_label(d)} — *{poll.get('name')}*")
+        lines.append(f"- {event_time_label(poll, d)} — *{poll.get('name')}*")
     lines.append("")
     lines.append("Times are in the organizer's local timezone. Use my default calendar and send invitations so each attendee can RSVP.")
     return "\n".join(lines)
@@ -609,6 +609,8 @@ def init_db():
         cursor.execute("ALTER TABLE polls ADD COLUMN IF NOT EXISTS slug TEXT")
         cursor.execute("ALTER TABLE polls ADD COLUMN IF NOT EXISTS closed_at TIMESTAMP")
         cursor.execute("ALTER TABLE polls ADD COLUMN IF NOT EXISTS closed_by TEXT")
+        cursor.execute("ALTER TABLE polls ADD COLUMN IF NOT EXISTS event_start_time TEXT")
+        cursor.execute("ALTER TABLE polls ADD COLUMN IF NOT EXISTS event_end_time TEXT")
         cursor.execute("UPDATE polls SET access_mode = 'public_link' WHERE access_mode IS NULL")
         cursor.execute("CREATE UNIQUE INDEX IF NOT EXISTS polls_slug_unique ON polls(slug) WHERE slug IS NOT NULL")
     except Exception as e:
@@ -1389,8 +1391,8 @@ def reopen_poll(poll_id):
     return redirect(url_for("view_poll", poll_id=poll_id))
 
 
-@app.route("/poll/<poll_id>/event/<int:date_id>/time", methods=["POST"])
-def set_event_time(poll_id, date_id):
+@app.route("/poll/<poll_id>/event-time", methods=["POST"])
+def set_poll_event_time(poll_id):
     current_user = get_current_user()
     if not current_user:
         return jsonify({"error": "Please sign in.", "needs_login": True}), 401
@@ -1417,28 +1419,21 @@ def set_event_time(poll_id, date_id):
         conn.close()
         return jsonify({"error": "Only the poll organizer can set event times."}), 403
 
-    cursor.execute(
-        "SELECT * FROM dates WHERE id = %s AND poll_id = %s AND is_final = TRUE",
-        (date_id, poll_id)
-    )
-    date_row = cursor.fetchone()
-    if not date_row:
-        conn.close()
-        return jsonify({"error": "That date isn't a confirmed date for this poll."}), 400
-
     if all_day:
         cursor.execute(
-            "UPDATE dates SET start_time = NULL, end_time = NULL WHERE id = %s",
-            (date_id,)
+            "UPDATE polls SET event_start_time = NULL, event_end_time = NULL WHERE id = %s",
+            (poll_id,)
         )
     else:
         cursor.execute(
-            "UPDATE dates SET start_time = %s, end_time = %s WHERE id = %s",
-            (start_time, end_time, date_id)
+            "UPDATE polls SET event_start_time = %s, event_end_time = %s WHERE id = %s",
+            (start_time, end_time, poll_id)
         )
     conn.commit()
 
-    # Re-fetch updated final dates and rebuild AI prompt for the client
+    # Re-fetch poll with new times so the AI prompt reflects them
+    cursor.execute("SELECT * FROM polls WHERE id = %s", (poll_id,))
+    poll = cursor.fetchone()
     cursor.execute(
         "SELECT * FROM dates WHERE poll_id = %s AND is_final = TRUE ORDER BY date",
         (poll_id,)
@@ -1450,15 +1445,11 @@ def set_event_time(poll_id, date_id):
     organizer_email = normalize_email(poll.get("admin_email"))
     ai_prompt = build_ai_calendar_prompt(poll, updated_finals, attendees, organizer_email)
 
-    updated_row = next((d for d in updated_finals if d["id"] == date_id), None)
-    label = event_time_label(updated_row) if updated_row else None
-
     return jsonify({
         "success": True,
         "all_day": all_day,
-        "start_time": start_time if not all_day else None,
-        "end_time": end_time if not all_day else None,
-        "label": label,
+        "start_time": poll.get("event_start_time"),
+        "end_time": poll.get("event_end_time"),
         "ai_prompt": ai_prompt,
     })
 
@@ -1546,9 +1537,9 @@ def email_event_invites(poll_id, date_id):
         "disposition": "attachment",
     }
 
-    subject = f"Confirmed: {poll.get('name')} — {event_time_label(date_row)}"
-    if date_row.get("start_time") and date_row.get("end_time"):
-        when_line = f"<p><strong>When:</strong> {date_row['date']}, {date_row['start_time']}–{date_row['end_time']} (organizer's local time)</p>"
+    subject = f"Confirmed: {poll.get('name')} — {event_time_label(poll, date_row)}"
+    if poll.get("event_start_time") and poll.get("event_end_time"):
+        when_line = f"<p><strong>When:</strong> {date_row['date']}, {poll['event_start_time']}–{poll['event_end_time']} (organizer's local time)</p>"
     else:
         when_line = f"<p><strong>When:</strong> {date_row['date']} (all day)</p>"
     html_body = (

@@ -81,16 +81,52 @@
                     </button>
                     <h3 class="text-sm font-semibold text-gray-900">Add to calendar</h3>
                 </div>
-                <p class="text-xs text-gray-500 mb-3">Confirmed date{{ 's' if final_dates|length > 1 else '' }} below. Each row has its own .ics file, an option to email invites to everyone who voted, and an AI Assistant prompt for organizers who'd rather use a chatbot with calendar access.</p>
+                <p class="text-xs text-gray-500 mb-3">Confirmed date{{ 's' if final_dates|length > 1 else '' }} below. Each row has its own .ics file and an option to email invites to everyone who voted. The AI Assistant prompt is a markdown block organizers can paste into a chatbot with calendar access.</p>
+
+                {% if poll.can_manage %}
+                {% set poll_is_timed = poll.event_start_time and poll.event_end_time %}
+                <div id="event-time-master" class="mb-4 p-3 border border-gray-200 rounded-lg bg-gray-50 flex flex-wrap items-center gap-3">
+                    <label class="flex items-center gap-2 text-sm text-gray-800 cursor-pointer">
+                        <input
+                            type="checkbox"
+                            id="masterAllDay"
+                            {% if not poll_is_timed %}checked{% endif %}
+                            onchange="onAllDayPollToggle()"
+                            class="rounded text-indigo-600"
+                        >
+                        All-day event
+                    </label>
+                    <div id="masterTimeFields" class="flex items-center gap-2 {% if not poll_is_timed %}hidden{% endif %}">
+                        <label class="text-xs text-gray-500">Start</label>
+                        <input
+                            type="time"
+                            id="masterStartTime"
+                            value="{{ poll.event_start_time or '' }}"
+                            onchange="savePollEventTime()"
+                            class="text-sm border border-gray-300 rounded px-2 py-1"
+                        >
+                        <label class="text-xs text-gray-500">End</label>
+                        <input
+                            type="time"
+                            id="masterEndTime"
+                            value="{{ poll.event_end_time or '' }}"
+                            onchange="savePollEventTime()"
+                            class="text-sm border border-gray-300 rounded px-2 py-1"
+                        >
+                    </div>
+                    <span id="masterTimeStatus" class="text-xs text-gray-400 ml-auto"></span>
+                    <p class="basis-full text-xs text-gray-500">Applies to every confirmed date in this poll.</p>
+                </div>
+                {% endif %}
+
                 <div class="space-y-3">
                     {% for d in final_dates %}
-                    {% set is_timed = d.start_time and d.end_time %}
-                    <div class="border border-emerald-200 rounded-lg p-3 bg-white" data-event-row data-date-id="{{ d.id }}">
+                    <div class="border border-emerald-200 rounded-lg p-3 bg-white">
                         <div class="flex items-center justify-between gap-3 flex-wrap">
                             <div>
                                 <div class="font-medium text-gray-900">{{ d.date }}</div>
-                                <div class="text-xs text-gray-500" data-event-label>
-                                    {% if is_timed %}{{ d.start_time }}–{{ d.end_time }} (your local time){% else %}All-day event{% endif %}
+                                <div class="text-xs text-gray-500 event-label">
+                                    {% if poll.event_start_time and poll.event_end_time %}{{ poll.event_start_time }}–{{ poll.event_end_time }} (organizer's local time){% else %}All-day event{% endif %}
                                 </div>
                             </div>
                             <div class="flex flex-wrap gap-2">
@@ -111,39 +147,6 @@
                                 {% endif %}
                             </div>
                         </div>
-                        {% if poll.can_manage %}
-                        <div class="mt-3 pt-3 border-t border-gray-100 flex flex-wrap items-center gap-3">
-                            <label class="flex items-center gap-2 text-xs text-gray-700 cursor-pointer">
-                                <input
-                                    type="checkbox"
-                                    data-allday-toggle
-                                    {% if not is_timed %}checked{% endif %}
-                                    onchange="onAllDayToggle({{ d.id }})"
-                                    class="rounded text-indigo-600"
-                                >
-                                All-day event
-                            </label>
-                            <div data-time-fields class="flex items-center gap-2 {% if not is_timed %}hidden{% endif %}">
-                                <label class="text-xs text-gray-500">Start</label>
-                                <input
-                                    type="time"
-                                    data-start-time
-                                    value="{{ d.start_time or '' }}"
-                                    onchange="saveEventTime({{ d.id }})"
-                                    class="text-xs border border-gray-300 rounded px-2 py-1"
-                                >
-                                <label class="text-xs text-gray-500">End</label>
-                                <input
-                                    type="time"
-                                    data-end-time
-                                    value="{{ d.end_time or '' }}"
-                                    onchange="saveEventTime({{ d.id }})"
-                                    class="text-xs border border-gray-300 rounded px-2 py-1"
-                                >
-                            </div>
-                            <span data-time-status class="text-xs text-gray-400 ml-auto"></span>
-                        </div>
-                        {% endif %}
                     </div>
                     {% endfor %}
                 </div>
@@ -601,34 +604,23 @@
         window.scrollTo({ top: 0, behavior: 'smooth' });
     }
 
-    function eventRow(dateId) {
-        return document.querySelector(`[data-event-row][data-date-id="${dateId}"]`);
-    }
-
-    function onAllDayToggle(dateId) {
-        const row = eventRow(dateId);
-        if (!row) return;
-        const allDay = row.querySelector('[data-allday-toggle]').checked;
-        row.querySelector('[data-time-fields]').classList.toggle('hidden', allDay);
-        if (allDay) {
-            saveEventTime(dateId);
-        } else {
-            // Default to 09:00–10:00 if empty so the user has something to tweak
-            const startEl = row.querySelector('[data-start-time]');
-            const endEl = row.querySelector('[data-end-time]');
-            if (!startEl.value) startEl.value = '09:00';
-            if (!endEl.value) endEl.value = '10:00';
-            saveEventTime(dateId);
+    function onAllDayPollToggle() {
+        const allDay = document.getElementById('masterAllDay').checked;
+        document.getElementById('masterTimeFields').classList.toggle('hidden', allDay);
+        if (!allDay) {
+            const s = document.getElementById('masterStartTime');
+            const e = document.getElementById('masterEndTime');
+            if (!s.value) s.value = '09:00';
+            if (!e.value) e.value = '10:00';
         }
+        savePollEventTime();
     }
 
-    async function saveEventTime(dateId) {
-        const row = eventRow(dateId);
-        if (!row) return;
-        const allDay = row.querySelector('[data-allday-toggle]').checked;
-        const start = row.querySelector('[data-start-time]').value;
-        const end = row.querySelector('[data-end-time]').value;
-        const status = row.querySelector('[data-time-status]');
+    async function savePollEventTime() {
+        const allDay = document.getElementById('masterAllDay').checked;
+        const start = document.getElementById('masterStartTime').value;
+        const end = document.getElementById('masterEndTime').value;
+        const status = document.getElementById('masterTimeStatus');
         status.textContent = 'Saving…';
         status.className = 'text-xs text-gray-400 ml-auto';
 
@@ -637,7 +629,7 @@
             : { all_day: false, start_time: start, end_time: end };
 
         try {
-            const res = await fetch(`/poll/{{ poll.id }}/event/${dateId}/time`, {
+            const res = await fetch(`/poll/{{ poll.id }}/event-time`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(body),
@@ -648,12 +640,10 @@
                 status.className = 'text-xs text-red-600 ml-auto';
                 return;
             }
-            const labelEl = row.querySelector('[data-event-label]');
-            if (labelEl) {
-                labelEl.textContent = allDay
-                    ? 'All-day event'
-                    : `${data.start_time}–${data.end_time} (your local time)`;
-            }
+            const labelText = allDay
+                ? 'All-day event'
+                : `${data.start_time}–${data.end_time} (organizer's local time)`;
+            document.querySelectorAll('.event-label').forEach(el => { el.textContent = labelText; });
             const aiEl = document.getElementById('ai-prompt-text');
             if (aiEl && data.ai_prompt) aiEl.textContent = data.ai_prompt;
             status.textContent = 'Saved';
