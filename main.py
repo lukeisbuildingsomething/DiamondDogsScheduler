@@ -160,6 +160,72 @@ def _parse_hhmm(value):
     return int(m.group(1)), int(m.group(2))
 
 
+def build_calendar_deeplinks(poll, date_row, attendees):
+    """Return {google_url, outlook_url} for a confirmed date, prefilled with attendees.
+
+    The deeplink opens the organizer's calendar with the event ready to save —
+    after they click Save, the calendar provider sends the invite natively
+    (so there's no email-auth/spoof issue and RSVPs route to the organizer).
+    """
+    from urllib.parse import urlencode
+
+    title = poll.get("name") or "Confirmed event"
+    description = f"Confirmed via Templo. {title}"
+    attendee_csv = ",".join(a for a in attendees if a)
+
+    parts = [int(p) for p in date_row["date"].split("-")]
+    day = _date(parts[0], parts[1], parts[2])
+    start_hhmm = _parse_hhmm(poll.get("event_start_time"))
+    end_hhmm = _parse_hhmm(poll.get("event_end_time"))
+
+    if start_hhmm and end_hhmm:
+        sh, sm = start_hhmm
+        eh, em = end_hhmm
+        if (eh, em) <= (sh, sm):
+            end_day = day + timedelta(days=1)
+        else:
+            end_day = day
+        google_dates = (
+            f"{day.strftime('%Y%m%d')}T{sh:02d}{sm:02d}00/"
+            f"{end_day.strftime('%Y%m%d')}T{eh:02d}{em:02d}00"
+        )
+        outlook_params = {
+            "path": "/calendar/action/compose",
+            "rru": "addevent",
+            "subject": title,
+            "body": description,
+            "startdt": f"{day.strftime('%Y-%m-%d')}T{sh:02d}:{sm:02d}:00",
+            "enddt": f"{end_day.strftime('%Y-%m-%d')}T{eh:02d}:{em:02d}:00",
+            "to": attendee_csv,
+        }
+    else:
+        end_day = day + timedelta(days=1)
+        google_dates = f"{day.strftime('%Y%m%d')}/{end_day.strftime('%Y%m%d')}"
+        outlook_params = {
+            "path": "/calendar/action/compose",
+            "rru": "addevent",
+            "subject": title,
+            "body": description,
+            "startdt": day.strftime("%Y-%m-%d"),
+            "enddt": end_day.strftime("%Y-%m-%d"),
+            "allday": "true",
+            "to": attendee_csv,
+        }
+
+    google_params = {
+        "action": "TEMPLATE",
+        "text": title,
+        "dates": google_dates,
+        "details": description,
+        "add": attendee_csv,
+    }
+
+    return {
+        "google_url": "https://calendar.google.com/calendar/render?" + urlencode(google_params),
+        "outlook_url": "https://outlook.office.com/calendar/0/deeplink/compose?" + urlencode(outlook_params),
+    }
+
+
 def event_time_label(poll, date_row):
     """Human-readable time label, e.g. '2026-05-15 (all day)' or '2026-05-15, 14:00–15:30'."""
     date_str = date_row.get("date") or ""
@@ -1182,6 +1248,10 @@ def view_poll(poll_id):
         ai_prompt = build_ai_calendar_prompt(
             poll, final_dates, sorted_participants, normalize_email(poll.get("admin_email"))
         )
+        for d in final_dates:
+            links = build_calendar_deeplinks(poll, d, sorted_participants)
+            d["google_url"] = links["google_url"]
+            d["outlook_url"] = links["outlook_url"]
 
     return render_template(
         "vote.html",
@@ -1521,96 +1591,6 @@ def download_event_ics(poll_id, date_id):
     response.headers["Content-Type"] = "text/calendar; charset=utf-8"
     response.headers["Content-Disposition"] = f"attachment; filename={filename}"
     return response
-
-
-@app.route("/poll/<poll_id>/event/<int:date_id>/email-invites", methods=["POST"])
-def email_event_invites(poll_id, date_id):
-    current_user = get_current_user()
-    if not current_user:
-        return jsonify({"error": "Please sign in.", "needs_login": True}), 401
-
-    conn = get_db()
-    cursor = conn.cursor(cursor_factory=RealDictCursor)
-    cursor.execute("SELECT * FROM polls WHERE id = %s", (poll_id,))
-    poll = cursor.fetchone()
-    if not poll:
-        conn.close()
-        return jsonify({"error": "Poll not found."}), 404
-    if not user_can_manage_poll(current_user, poll):
-        conn.close()
-        return jsonify({"error": "Only the poll organizer can send invites."}), 403
-    if not poll.get("closed_at"):
-        conn.close()
-        return jsonify({"error": "Close the poll before sending invites."}), 400
-
-    cursor.execute(
-        "SELECT * FROM dates WHERE id = %s AND poll_id = %s AND is_final = TRUE",
-        (date_id, poll_id)
-    )
-    date_row = cursor.fetchone()
-    if not date_row:
-        conn.close()
-        return jsonify({"error": "That date isn't a confirmed date for this poll."}), 400
-
-    attendees = _participant_emails(cursor, poll_id)
-    organizer_email = normalize_email(poll.get("admin_email"))
-    organizer_name = get_name(organizer_email) or organizer_email
-    conn.close()
-
-    if not attendees:
-        return jsonify({"error": "No participants have voted yet — no one to invite."}), 400
-
-    _, sender_email = get_mail_from()
-    ics = generate_ics(poll, date_row, attendees, organizer_email, organizer_name, sent_by_email=sender_email)
-    attachment = {
-        "content": base64.b64encode(ics.encode("utf-8")).decode("ascii"),
-        "filename": f"templo-{poll['id']}-{date_row['date']}.ics",
-        "disposition": "attachment",
-    }
-
-    subject = f"Confirmed: {poll.get('name')} — {event_time_label(poll, date_row)}"
-    if poll.get("event_start_time") and poll.get("event_end_time"):
-        when_line = f"<p><strong>When:</strong> {date_row['date']}, {poll['event_start_time']}–{poll['event_end_time']} (organizer's local time)</p>"
-    else:
-        when_line = f"<p><strong>When:</strong> {date_row['date']} (all day)</p>"
-    html_body = (
-        f"<p><strong>{organizer_name}</strong> has confirmed a date for "
-        f"<strong>{poll.get('name')}</strong>.</p>"
-        f"{when_line}"
-        "<p>The attached calendar invite (.ics) will add it to any calendar app — "
-        "Google Calendar, Outlook, Apple Calendar, etc.</p>"
-        "<p style=\"color:#6b7280;font-size:14px;margin-top:20px;\">Templo: templobooker.com</p>"
-    )
-
-    sent_count = 0
-    failures = []
-    for attendee in attendees:
-        ok, err = send_email(
-            attendee,
-            subject,
-            html_body,
-            reply_to=organizer_email,
-            attachments=[attachment],
-        )
-        if ok:
-            sent_count += 1
-        else:
-            failures.append({"email": attendee, "error": err})
-
-    if failures and sent_count == 0:
-        first = failures[0]
-        code, msg = classify_email_error(first.get("error"))
-        return jsonify({
-            "error": f"All invites failed ({code}). {msg}",
-            "failures": failures,
-        }), 502
-
-    return jsonify({
-        "success": True,
-        "sent": sent_count,
-        "failed": len(failures),
-        "failures": failures,
-    })
 
 
 @app.route("/poll/<poll_id>/vote", methods=["POST"])

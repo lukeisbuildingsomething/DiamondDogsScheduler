@@ -81,7 +81,7 @@
                     </button>
                     <h3 class="text-sm font-semibold text-gray-900">Add to calendar</h3>
                 </div>
-                <p class="text-xs text-gray-500 mb-3">Confirmed date{{ 's' if final_dates|length > 1 else '' }} below. Each row has its own .ics file and an option to email invites to everyone who voted. The AI Assistant prompt is a markdown block organizers can paste into a chatbot with calendar access.</p>
+                <p class="text-xs text-gray-500 mb-3">Confirmed date{{ 's' if final_dates|length > 1 else '' }} below. Click <strong>Open in Google Calendar</strong> or <strong>Open in Outlook</strong> to open a pre-filled event on your own calendar with the voters added as attendees — your calendar provider sends the invites natively. <strong>Download .ics</strong> is the universal fallback. The AI Assistant prompt is a markdown block you can paste into a chatbot with calendar access.</p>
 
                 {% if poll.can_manage %}
                 {% set poll_is_timed = poll.event_start_time and poll.event_end_time %}
@@ -130,21 +130,32 @@
                                 </div>
                             </div>
                             <div class="flex flex-wrap gap-2">
+                                {% if poll.can_manage and d.google_url %}
+                                <a
+                                    href="{{ d.google_url }}"
+                                    target="_blank"
+                                    rel="noopener"
+                                    class="text-xs bg-emerald-600 text-white py-2 px-3 rounded-lg hover:bg-emerald-700 transition-colors inline-flex items-center gap-1"
+                                    title="Opens Google Calendar with the event ready to save — Google sends the invite from your account"
+                                >
+                                    Open in Google Calendar
+                                </a>
+                                <a
+                                    href="{{ d.outlook_url }}"
+                                    target="_blank"
+                                    rel="noopener"
+                                    class="text-xs bg-blue-600 text-white py-2 px-3 rounded-lg hover:bg-blue-700 transition-colors inline-flex items-center gap-1"
+                                    title="Opens Outlook with the event ready to save — Outlook sends the invite from your account"
+                                >
+                                    Open in Outlook
+                                </a>
+                                {% endif %}
                                 <a
                                     href="/poll/{{ poll.id }}/event/{{ d.id }}.ics"
                                     class="text-xs bg-gray-100 text-gray-700 py-2 px-3 rounded-lg hover:bg-gray-200 transition-colors"
                                 >
                                     Download .ics
                                 </a>
-                                {% if poll.can_manage %}
-                                <button
-                                    type="button"
-                                    onclick="emailInvites({{ d.id }}, this)"
-                                    class="text-xs bg-emerald-600 text-white py-2 px-3 rounded-lg hover:bg-emerald-700 transition-colors"
-                                >
-                                    Email invites to voters
-                                </button>
-                                {% endif %}
                             </div>
                         </div>
                     </div>
@@ -553,32 +564,6 @@
             btn.disabled = false;
             btn.textContent = originalLabel;
         }
-    }
-
-    async function emailInvites(dateId, btn) {
-        const original = btn.textContent;
-        btn.disabled = true;
-        btn.textContent = 'Sending…';
-        try {
-            const res = await fetch(`/poll/{{ poll.id }}/event/${dateId}/email-invites`, { method: 'POST' });
-            const data = await res.json().catch(() => ({}));
-            if (!res.ok || data.error) {
-                alert(data.error || 'Failed to send invites.');
-                return;
-            }
-            const failed = data.failed || 0;
-            if (failed > 0) {
-                alert(`Sent ${data.sent} invite(s); ${failed} failed. Check the deploy logs for details.`);
-            } else {
-                btn.textContent = `Sent to ${data.sent}`;
-                setTimeout(() => { btn.textContent = original; btn.disabled = false; }, 3000);
-                return;
-            }
-        } catch (e) {
-            alert('Network error sending invites.');
-        }
-        btn.disabled = false;
-        btn.textContent = original;
     }
 
     function copyAiPrompt(btn) {
